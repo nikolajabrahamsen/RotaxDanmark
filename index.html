@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.111";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -526,7 +526,7 @@ const initialState={
   champPdfs:{},
   champStandings:{},
   kartRegister:{ranges:{},numbers:{},releaseDate:"",renewOpenDate:""},
-  uiPrefs:{},
+  uiPrefs:{theme:(typeof localStorage!=="undefined"&&localStorage.getItem("gc_theme"))||"dark"},
   sessionGroups:{},
   regulations:[
     {id:1,title:"Teknisk Reglement 2026",file:"teknisk_2026.pdf",updated:"2026-01-15"},
@@ -1077,6 +1077,10 @@ function LogoIcon({size=40}){
   </svg>;
 }
 function LangBar({state,dispatch}){return <div style={{display:"flex",gap:4}}>{["da","en"].map(l=><button key={l} onClick={()=>dispatch({type:"SET_LANG",payload:l})} style={{background:state.lang===l?C.red:C.surface2,color:state.lang===l?"#fff":C.textMuted,border:`1px solid ${state.lang===l?C.red:C.border}`,borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>{l.toUpperCase()}</button>)}</div>;}
+function ThemeToggleBtn({state,dispatch}){
+  const theme=state.uiPrefs?.theme==="light"?"light":"dark";
+  return <button onClick={()=>dispatch({type:"SET_UI_PREF",key:"theme",value:theme==="light"?"dark":"light"})} title={theme==="light"?"Mørkt tema":"Lyst tema"} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 8px",fontSize:12,cursor:"pointer",fontFamily:"inherit",lineHeight:1.4}}>{theme==="light"?"🌙":"☀️"}</button>;
+}
 
 // Draws the GridControl 3x3 starting-grid logo onto a canvas at (x,y), matching the SVG Logo component.
 function drawLogoOnCanvas(ctx,x,y,size){
@@ -3129,6 +3133,7 @@ function UserApp({state,dispatch}){
         </div>}
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <ThemeToggleBtn state={state} dispatch={dispatch}/>
         <LangBar state={state} dispatch={dispatch}/>
         {/* Hamburger menu button */}
         <button onClick={()=>setMenuOpen(o=>!o)} style={{position:"relative",background:menuOpen?C.red:C.surface2,border:`1px solid ${menuOpen?C.red:C.border}`,borderRadius:8,width:38,height:38,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,flexShrink:0,transition:"all 0.2s"}}>
@@ -3234,7 +3239,10 @@ function UserApp({state,dispatch}){
 
         {/* Footer */}
         <div style={{padding:"12px 18px",borderTop:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
-          <LangBar state={state} dispatch={dispatch}/>
+          <div style={{display:"flex",gap:6}}>
+            <ThemeToggleBtn state={state} dispatch={dispatch}/>
+            <LangBar state={state} dispatch={dispatch}/>
+          </div>
           <Btn variant="danger" onClick={()=>dispatch({type:"LOGOUT"})} style={{width:"100%"}}>{t.logOut}</Btn>
           <div style={{textAlign:"center",color:C.textDim,fontSize:9}}>GridControl {APP_VERSION}</div>
         </div>
@@ -6718,7 +6726,10 @@ function App(){
   const notifCount=useRef(null);
   const audioCtxRef=useRef(null);
 
-  useEffect(()=>{document.body.style.background=state.uiPrefs?.theme==="light"?LIGHT_THEME.bg:DARK_THEME.bg;},[state.uiPrefs?.theme]);
+  useEffect(()=>{
+    document.body.style.background=state.uiPrefs?.theme==="light"?LIGHT_THEME.bg:DARK_THEME.bg;
+    try{localStorage.setItem("gc_theme",state.uiPrefs?.theme==="light"?"light":"dark");}catch(e){}
+  },[state.uiPrefs?.theme]);
 
   // Always register the service worker (not just when push is supported) – it's a prerequisite for
   // the browser to offer "Install app" on e.g. Windows/Chrome/Edge. Fails silently if SW isn't
