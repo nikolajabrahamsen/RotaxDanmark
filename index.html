@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.112";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -3133,8 +3133,6 @@ function UserApp({state,dispatch}){
         </div>}
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        <ThemeToggleBtn state={state} dispatch={dispatch}/>
-        <LangBar state={state} dispatch={dispatch}/>
         {/* Hamburger menu button */}
         <button onClick={()=>setMenuOpen(o=>!o)} style={{position:"relative",background:menuOpen?C.red:C.surface2,border:`1px solid ${menuOpen?C.red:C.border}`,borderRadius:8,width:38,height:38,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,flexShrink:0,transition:"all 0.2s"}}>
           {menuOpen
