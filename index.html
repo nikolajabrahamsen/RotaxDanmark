@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.117";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -4630,22 +4630,44 @@ function AdminPenalties({state,dispatch,seriesScope}){
       <Input label={t.admReason} value={form.reason} onChange={v=>setForm(f=>({...f,reason:v}))} placeholder={t.admReasonOptional}/>
       <Btn onClick={add} style={{width:"100%"}} variant="secondary" disabled={!form.kartNo}>{t.admAddPenaltyBtn}</Btn>
     </Card>
-    {form.class&&form.session&&form.session!=="Alle"&&(()=>{
-      const insMatches=(ev?.inspections||[]).filter(ins=>ins.class===form.class&&ins.session===form.session);
-      const sigMatches=(ev?.readySignals||[]).filter(s=>s.class===form.class&&s.session===form.session);
-      const items=[
-        {label:t.admStatusVideo,icon:"🎥",done:insMatches.some(ins=>ins.videoOk===true)},
-        {label:t.admStatusTrack,icon:"🏁",done:insMatches.some(ins=>ins.trackOk===true)},
-        {label:t.admStatusWeight,icon:"⚖️",done:sigMatches.some(s=>s.stype==="weight")},
-        {label:t.admStatusNose,icon:"🔧",done:sigMatches.some(s=>s.stype==="nose")},
-      ];
+    {(()=>{
+      // Every class+session combo that has at least one inspection or ready-signal report, so the
+      // table only shows combos that are actually in play rather than guessing the race's full
+      // session structure up front.
+      const combos={};
+      const addCombo=(cls,sess)=>{if(!cls||!sess)return;const key=cls+"||"+sess;if(!combos[key])combos[key]={class:cls,session:sess};};
+      (ev?.inspections||[]).forEach(ins=>addCombo(ins.class,ins.session));
+      (ev?.readySignals||[]).forEach(s=>addCombo(s.class,s.session));
+      const rows=Object.values(combos).sort((a,b)=>a.class.localeCompare(b.class,"da")||a.session.localeCompare(b.session,"da"));
+      if(!rows.length)return null;
+      const Dot=({done,icon})=><div style={{width:26,height:26,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",background:done?`${C.green}22`:C.surface2,border:`1px solid ${done?C.green:C.border}`,margin:"0 auto"}}>
+        <span style={{fontSize:13}}>{done?"✅":icon}</span>
+      </div>;
       return <Card style={{marginBottom:10,padding:"10px 14px"}}>
-        <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:8}}>{t.admStatusFor} {form.class} · {form.session}</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-          {items.map(({label,icon,done})=><div key={label} style={{textAlign:"center",background:done?`${C.green}18`:C.surface2,border:`1px solid ${done?C.green:C.border}`,borderRadius:8,padding:"8px 4px"}}>
-            <div style={{fontSize:18}}>{done?"✅":icon}</div>
-            <div style={{color:done?C.green:C.textMuted,fontSize:9,fontWeight:700,marginTop:2}}>{label}</div>
-          </div>)}
+        <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:8}}>{t.admStatusFor}</div>
+        <div style={{overflowX:"auto"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr repeat(4,32px)",gap:4,alignItems:"center",marginBottom:6,minWidth:280}}>
+            <span/>
+            <span style={{fontSize:14,textAlign:"center"}} title={t.admStatusVideo}>🎥</span>
+            <span style={{fontSize:14,textAlign:"center"}} title={t.admStatusTrack}>🏁</span>
+            <span style={{fontSize:14,textAlign:"center"}} title={t.admStatusWeight}>⚖️</span>
+            <span style={{fontSize:14,textAlign:"center"}} title={t.admStatusNose}>🔧</span>
+          </div>
+          {rows.map(({class:cls,session})=>{
+            const insMatches=(ev?.inspections||[]).filter(ins=>ins.class===cls&&ins.session===session);
+            const sigMatches=(ev?.readySignals||[]).filter(s=>s.class===cls&&s.session===session);
+            const videoDone=insMatches.some(ins=>ins.videoOk===true);
+            const trackDone=insMatches.some(ins=>ins.trackOk===true);
+            const weightDone=sigMatches.some(s=>s.stype==="weight");
+            const noseDone=sigMatches.some(s=>s.stype==="nose");
+            return <div key={cls+"||"+session} style={{display:"grid",gridTemplateColumns:"1fr repeat(4,32px)",gap:4,alignItems:"center",padding:"5px 0",borderTop:`1px solid ${C.border}`,minWidth:280}}>
+              <div style={{fontSize:11,color:C.text,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cls} <span style={{color:C.textMuted,fontWeight:400}}>· {session}</span></div>
+              <Dot done={videoDone} icon="🎥"/>
+              <Dot done={trackDone} icon="🏁"/>
+              <Dot done={weightDone} icon="⚖️"/>
+              <Dot done={noseDone} icon="🔧"/>
+            </div>;
+          })}
         </div>
       </Card>;
     })()}
