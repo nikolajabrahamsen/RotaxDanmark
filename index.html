@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.120";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -4626,7 +4626,19 @@ function AdminPenalties({state,dispatch,seriesScope}){
       <Input label={t.admReason} value={form.reason} onChange={v=>setForm(f=>({...f,reason:v}))} placeholder={t.admReasonOptional}/>
       <Btn onClick={add} style={{width:"100%"}} variant="secondary" disabled={!form.kartNo}>{t.admAddPenaltyBtn}</Btn>
     </Card>
-    {(()=>{
+    </>}
+    {penTab==="list"&&<>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+      <button onClick={()=>setShowApproved(false)} style={{background:!showApproved?`${C.orange}22`:C.surface2,border:`2px solid ${!showApproved?C.orange:C.border}`,borderRadius:8,padding:"10px",cursor:"pointer",textAlign:"center",fontFamily:"inherit"}}>
+        <div style={{color:!showApproved?C.orange:C.textMuted,fontWeight:900,fontSize:20,fontFamily:"'Barlow Condensed',sans-serif"}}>{pending.length}</div>
+        <div style={{color:!showApproved?C.orange:C.textMuted,fontSize:10,letterSpacing:1}}>{t.admPending}</div>
+      </button>
+      <button onClick={()=>setShowApproved(true)} style={{background:showApproved?`${C.green}22`:C.surface2,border:`2px solid ${showApproved?C.green:C.border}`,borderRadius:8,padding:"10px",cursor:"pointer",textAlign:"center",fontFamily:"inherit"}}>
+        <div style={{color:showApproved?C.green:C.textMuted,fontWeight:900,fontSize:20,fontFamily:"'Barlow Condensed',sans-serif"}}>{approved.length}</div>
+        <div style={{color:showApproved?C.green:C.textMuted,fontSize:10,letterSpacing:1}}>{t.admApproved}</div>
+      </button>
+    </div>
+    {!showApproved&&(()=>{
       const readySignals=ev?.readySignals||[];
       if(!readySignals.length)return null;
       const checks=[["videoOk",t.video],["trackOk",t.track]];
@@ -4676,18 +4688,6 @@ function AdminPenalties({state,dispatch,seriesScope}){
         </Card>)}
       </div>;
     })()}
-    </>}
-    {penTab==="list"&&<>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-      <button onClick={()=>setShowApproved(false)} style={{background:!showApproved?`${C.orange}22`:C.surface2,border:`2px solid ${!showApproved?C.orange:C.border}`,borderRadius:8,padding:"10px",cursor:"pointer",textAlign:"center",fontFamily:"inherit"}}>
-        <div style={{color:!showApproved?C.orange:C.textMuted,fontWeight:900,fontSize:20,fontFamily:"'Barlow Condensed',sans-serif"}}>{pending.length}</div>
-        <div style={{color:!showApproved?C.orange:C.textMuted,fontSize:10,letterSpacing:1}}>{t.admPending}</div>
-      </button>
-      <button onClick={()=>setShowApproved(true)} style={{background:showApproved?`${C.green}22`:C.surface2,border:`2px solid ${showApproved?C.green:C.border}`,borderRadius:8,padding:"10px",cursor:"pointer",textAlign:"center",fontFamily:"inherit"}}>
-        <div style={{color:showApproved?C.green:C.textMuted,fontWeight:900,fontSize:20,fontFamily:"'Barlow Condensed',sans-serif"}}>{approved.length}</div>
-        <div style={{color:showApproved?C.green:C.textMuted,fontSize:10,letterSpacing:1}}>{t.admApproved}</div>
-      </button>
-    </div>
     <div style={{display:"flex",gap:5,overflowX:"auto",marginBottom:5}}>{classes.map((cl,ci)=><button key={ci+"_"+cl} onClick={()=>setCf(cl)} style={{background:cf===cl?C.orange:C.surface2,color:cf===cl?"#fff":C.textMuted,border:`1px solid ${cf===cl?C.orange:C.border}`,borderRadius:20,padding:"3px 10px",fontSize:10,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{cl}</button>)}</div>
     <div style={{display:"flex",gap:5,overflowX:"auto",marginBottom:8}}>{sessions.map(s=><button key={s} onClick={()=>setSf(s)} style={{background:sf===s?C.blue:C.surface2,color:sf===s?"#fff":C.textMuted,border:`1px solid ${sf===s?C.blue:C.border}`,borderRadius:20,padding:"3px 10px",fontSize:10,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{s}</button>)}</div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
