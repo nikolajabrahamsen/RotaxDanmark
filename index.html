@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.118";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -4631,45 +4631,54 @@ function AdminPenalties({state,dispatch,seriesScope}){
       <Btn onClick={add} style={{width:"100%"}} variant="secondary" disabled={!form.kartNo}>{t.admAddPenaltyBtn}</Btn>
     </Card>
     {(()=>{
-      // Every class+session combo that has at least one inspection or ready-signal report, so the
-      // table only shows combos that are actually in play rather than guessing the race's full
-      // session structure up front.
-      const combos={};
-      const addCombo=(cls,sess)=>{if(!cls||!sess)return;const key=cls+"||"+sess;if(!combos[key])combos[key]={class:cls,session:sess};};
-      (ev?.inspections||[]).forEach(ins=>addCombo(ins.class,ins.session));
-      (ev?.readySignals||[]).forEach(s=>addCombo(s.class,s.session));
-      const rows=Object.values(combos).sort((a,b)=>a.class.localeCompare(b.class,"da")||a.session.localeCompare(b.session,"da"));
-      if(!rows.length)return null;
-      const Dot=({done,icon})=><div style={{width:26,height:26,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",background:done?`${C.green}22`:C.surface2,border:`1px solid ${done?C.green:C.border}`,margin:"0 auto"}}>
-        <span style={{fontSize:13}}>{done?"✅":icon}</span>
-      </div>;
-      return <Card style={{marginBottom:10,padding:"10px 14px"}}>
-        <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:8}}>{t.admStatusFor}</div>
-        <div style={{overflowX:"auto"}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr repeat(4,32px)",gap:4,alignItems:"center",marginBottom:6,minWidth:280}}>
-            <span/>
-            <span style={{fontSize:14,textAlign:"center"}} title={t.admStatusVideo}>🎥</span>
-            <span style={{fontSize:14,textAlign:"center"}} title={t.admStatusTrack}>🏁</span>
-            <span style={{fontSize:14,textAlign:"center"}} title={t.admStatusWeight}>⚖️</span>
-            <span style={{fontSize:14,textAlign:"center"}} title={t.admStatusNose}>🔧</span>
-          </div>
-          {rows.map(({class:cls,session})=>{
-            const insMatches=(ev?.inspections||[]).filter(ins=>ins.class===cls&&ins.session===session);
-            const sigMatches=(ev?.readySignals||[]).filter(s=>s.class===cls&&s.session===session);
-            const videoDone=insMatches.some(ins=>ins.videoOk===true);
-            const trackDone=insMatches.some(ins=>ins.trackOk===true);
-            const weightDone=sigMatches.some(s=>s.stype==="weight");
-            const noseDone=sigMatches.some(s=>s.stype==="nose");
-            return <div key={cls+"||"+session} style={{display:"grid",gridTemplateColumns:"1fr repeat(4,32px)",gap:4,alignItems:"center",padding:"5px 0",borderTop:`1px solid ${C.border}`,minWidth:280}}>
-              <div style={{fontSize:11,color:C.text,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cls} <span style={{color:C.textMuted,fontWeight:400}}>· {session}</span></div>
-              <Dot done={videoDone} icon="🎥"/>
-              <Dot done={trackDone} icon="🏁"/>
-              <Dot done={weightDone} icon="⚖️"/>
-              <Dot done={noseDone} icon="🔧"/>
+      const readySignals=ev?.readySignals||[];
+      if(!readySignals.length)return null;
+      const checks=[["videoOk",t.video],["trackOk",t.track]];
+      // Group signals by class, newest first, capped at the last 10 per class.
+      const byClass={};
+      readySignals.slice().reverse().forEach(s=>{
+        if(!s.class)return;
+        if(!byClass[s.class])byClass[s.class]=[];
+        if(byClass[s.class].length<10)byClass[s.class].push(s);
+      });
+      const classNames=Object.keys(byClass).sort((a,b)=>a.localeCompare(b,"da"));
+      if(!classNames.length)return null;
+      // Same merge logic as ReadySignalsCard: for inspection signals, combine submissions for this
+      // class+session+groups within a few hours of each other, so one official marking only Video
+      // and another later marking only Banen show up combined instead of the second wiping the first.
+      const mergedInsFor=(s)=>{
+        if(s.stype!=="inspection")return null;
+        const sGroupKey=(s.groups||[]).slice().sort().join(",");
+        const matches=(ev.inspections||[]).filter(ins=>ins.class===s.class&&ins.session===s.session&&(ins.groups||[]).slice().sort().join(",")===sGroupKey);
+        if(matches.length===0)return null;
+        const merged={groups:s.groups||[],videoOk:null,trackOk:null,notes:""};
+        const sorted=matches.slice().sort((a,b)=>(a.id||0)-(b.id||0));
+        const latestTime=sorted[sorted.length-1].id||0;
+        const MERGE_WINDOW_MS=4*60*60*1000;
+        sorted.filter(ins=>latestTime-(ins.id||0)<=MERGE_WINDOW_MS).forEach(ins=>{
+          if(ins.videoOk!=null)merged.videoOk=ins.videoOk;
+          if(ins.trackOk!=null)merged.trackOk=ins.trackOk;
+          if(ins.notes)merged.notes=ins.notes;
+        });
+        return merged;
+      };
+      return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10,marginBottom:10}}>
+        {classNames.map(cls=><Card key={cls} style={{borderLeft:`3px solid ${C.cyan}`,padding:"10px 12px",marginBottom:0}}>
+          <div style={{color:C.cyan,fontSize:11,fontWeight:700,marginBottom:6}}>{cls}</div>
+          {byClass[cls].map((s,i)=>{
+            const insMatch=mergedInsFor(s);
+            const displayGroups=insMatch?insMatch.groups:s.groups;
+            return <div key={i} style={{padding:"5px 0",borderBottom:i<byClass[cls].length-1?`1px solid ${C.border}`:"none"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:6}}>
+                <div style={{color:C.text,fontSize:11}}>{s.session}{displayGroups&&displayGroups.length?" "+displayGroups.join("+"):""}{!insMatch?" · "+(READY_SIGNAL_LABELS[s.stype]||s.stype):""}</div>
+                <span style={{color:C.textMuted,fontSize:9,flexShrink:0}}>{s.time}</span>
+              </div>
+              {insMatch&&<div style={{display:"flex",gap:4,marginTop:2}}>{checks.map(([k,l])=><Badge key={k} color={insMatch[k]===true?C.green:insMatch[k]===false?C.red:C.textMuted} style={{fontSize:8}}>{l}: {insMatch[k]===true?"OK":insMatch[k]===false?"FEJL":"—"}</Badge>)}</div>}
+              {insMatch&&insMatch.notes&&<div style={{color:C.textMuted,fontSize:9,marginTop:2}}>{insMatch.notes}</div>}
             </div>;
           })}
-        </div>
-      </Card>;
+        </Card>)}
+      </div>;
     })()}
     <div style={{display:"flex",gap:5,overflowX:"auto",marginBottom:5}}>{classes.map((cl,ci)=><button key={ci+"_"+cl} onClick={()=>setCf(cl)} style={{background:cf===cl?C.orange:C.surface2,color:cf===cl?"#fff":C.textMuted,border:`1px solid ${cf===cl?C.orange:C.border}`,borderRadius:20,padding:"3px 10px",fontSize:10,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{cl}</button>)}</div>
     <div style={{display:"flex",gap:5,overflowX:"auto",marginBottom:8}}>{sessions.map(s=><button key={s} onClick={()=>setSf(s)} style={{background:sf===s?C.blue:C.surface2,color:sf===s?"#fff":C.textMuted,border:`1px solid ${sf===s?C.blue:C.border}`,borderRadius:20,padding:"3px 10px",fontSize:10,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{s}</button>)}</div>
