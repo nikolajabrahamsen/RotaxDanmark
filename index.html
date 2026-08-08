@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.122";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -6920,6 +6920,12 @@ function App(){
       // Fetch Auth profiles
       const profiles=await loadProfiles();
       dispatch({type:"SET_PROFILES",payload:profiles});
+      // Tracks whether we actually obtained real (or confirmed-empty-on-a-fresh-database) state this
+      // load — loaded.current below must only ever become true when this is true. Autosave is gated
+      // on loaded.current, so if this stays false (e.g. the main fetch errored), autosave never arms
+      // itself against a stale/empty local state, which would otherwise overwrite real data on the
+      // very next state change.
+      let loadSucceeded=false;
 
       // Fetch app state + the dedicated penalties/ready_signals/registrations/notifications/imported_users
       // tables in parallel (these live separately from the app_state blob – see stripLocal for why).
@@ -6961,11 +6967,32 @@ function App(){
         lastSaved.current=JSON.stringify(stripLocal({...initialState,...data.data}));
         dispatch({type:"HYDRATE",payload});
         setSync(importedErr||penaltyErr||signalErr||notifErr||regErr?"error":"synced");
+        loadSucceeded=true;
       }else{
+        // CRITICAL: this branch is meant only for a genuinely brand-new database with no app_state
+        // row at all yet. It must NEVER be able to overwrite a row that already exists — a plain
+        // .insert() relies on the database rejecting a duplicate id, which is fragile (a transient
+        // fetch hiccup that returns no data even though the row exists would hit this same branch).
+        // ignoreDuplicates:true makes Postgres skip the write entirely if id:1 already exists, so
+        // this is safe even if this branch fires when it shouldn't have.
         const seed=stripLocal(initialState);
-        const {error:insErr}=await sb.from("app_state").insert({id:1,data:seed,client:CLIENT_ID});
+        const {error:insErr}=await sb.from("app_state").upsert({id:1,data:seed,client:CLIENT_ID},{onConflict:"id",ignoreDuplicates:true});
         if(insErr){console.error("Supabase seed:",insErr);setSync("error");}
-        else{lastSaved.current=JSON.stringify(seed);setSync("synced");}
+        else{
+          // Re-fetch to check whether a row already existed (in which case ignoreDuplicates silently
+          // skipped our write) rather than assuming our seed was actually written.
+          const {data:check}=await sb.from("app_state").select("data").eq("id",1).maybeSingle();
+          if(check?.data){
+            console.warn("app_state already existed — seed was skipped, re-loading existing data instead of showing empty state.");
+            skipNextSave.current=true;
+            lastSaved.current=JSON.stringify(stripLocal({...initialState,...check.data}));
+            dispatch({type:"HYDRATE",payload:check.data});
+          }else{
+            lastSaved.current=JSON.stringify(seed);
+          }
+          setSync("synced");
+          loadSucceeded=true;
+        }
       }
 
       // Restore login if an Auth session exists
@@ -6976,7 +7003,7 @@ function App(){
         const {data:prof}=await sb.from("profiles").select("*").eq("id",uid).maybeSingle();
         if(prof){loggedInProfile=prof;dispatch({type:"LOGIN",payload:rowToUser(prof)});}
       }
-      loaded.current=true;
+      loaded.current=loadSucceeded;
 
       // Path A: Clear front fairing images older than 30 days (only when an admin opens the app)
       if(loggedInProfile?.is_admin){
