@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.123";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -7135,6 +7135,22 @@ function App(){
     const rest=stripLocal(state);
     const json=JSON.stringify(rest);
     if(json===lastSaved.current){pendingSave.current=false;return;}
+    // Safety net, independent of any specific bug: refuse to save if this would wipe out races
+    // that we previously had confirmed were saved. This can only ever BLOCK a save, never force
+    // one through, so it can't itself cause data loss — it exists purely so that if local state
+    // ever ends up unexpectedly empty for a reason we haven't anticipated, autosave can't turn
+    // that into a permanent server-side loss. A real "delete all my races" action doesn't exist
+    // in this app, so dropping from several events to exactly zero is never a legitimate save.
+    try{
+      const prevEvents=lastSaved.current?(JSON.parse(lastSaved.current).events||[]).length:0;
+      const newEvents=(rest.events||[]).length;
+      if(prevEvents>=3&&newEvents===0){
+        console.error(`Refusing to autosave: local state has 0 races but the last confirmed save had ${prevEvents}. This looks like a data-loss scenario, not a real change, so the save has been blocked to protect your data. Reload the page — if races are still missing after that, this is a genuine server-side issue, not this local safety check.`);
+        setSync("error");
+        pendingSave.current=false;
+        return;
+      }
+    }catch(e){/* if this check itself fails for any reason, fall through to the normal save */}
     pendingSave.current=true;
     setSync("saving");
     const t=setTimeout(async()=>{
