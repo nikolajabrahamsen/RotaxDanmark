@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.121";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -4709,11 +4709,15 @@ function AdminPenalties({state,dispatch,seriesScope}){
         return p.reason?`${label} - ${p.reason}`:label;
       };
       return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,alignItems:"start"}}>
-        {/* VENSTRE: godkendelse */}
-        <div>
-          <div style={{color:C.textMuted,fontSize:10,letterSpacing:2,marginBottom:8}}>{showApproved?t.admApprovedHdr:t.admForApprovalHdr}</div>
-          {filtered.length===0&&<div style={{color:C.textMuted,textAlign:"center",padding:20}}>{showApproved?t.admNoApprovedPenalties:t.admNoPendingPenalties}</div>}
-          {filtered.map((p,i)=><Card key={i} style={{padding:"10px 14px",borderLeft:`3px solid ${p.type==="Diskvalifikation"?C.red:showApproved?C.green:C.orange}`,marginBottom:6}}>
+        <div style={{color:C.textMuted,fontSize:10,letterSpacing:2,marginBottom:8}}>{showApproved?t.admApprovedHdr:t.admForApprovalHdr}</div>
+        <div style={{color:C.cyan,fontSize:10,letterSpacing:2,marginBottom:8}}>{t.admToOrbits}</div>
+        {filtered.length===0&&<>
+          <div style={{color:C.textMuted,textAlign:"center",padding:20}}>{showApproved?t.admNoApprovedPenalties:t.admNoPendingPenalties}</div>
+          <div style={{color:C.textMuted,textAlign:"center",padding:20}}>{t.noPenalties}</div>
+        </>}
+        {filtered.map((p,i)=><React.Fragment key={i}>
+          {/* VENSTRE: godkendelse */}
+          <Card style={{padding:"10px 14px",borderLeft:`3px solid ${p.type==="Diskvalifikation"?C.red:showApproved?C.green:C.orange}`,marginBottom:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
                 <span style={{fontWeight:900,color:C.text,fontSize:18,fontFamily:"'Barlow Condensed',sans-serif"}}>#{p.kartNo}</span>
@@ -4735,20 +4739,16 @@ function AdminPenalties({state,dispatch,seriesScope}){
               <button onClick={()=>openEdit(p)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 12px",color:C.textMuted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{t.edit}</button>
               <button onClick={()=>{if(confirm(t.admDeletePenaltyConfirm))deletePenalty(p);}} style={{background:"#400010",border:"1px solid #FF446644",borderRadius:6,padding:"7px 12px",color:"#FF4466",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{t.delete}</button>
             </div>
-          </Card>)}
-        </div>
-        {/* HØJRE: Orbits-tekst */}
-        <div>
-          <div style={{color:C.cyan,fontSize:10,letterSpacing:2,marginBottom:8}}>{t.admToOrbits}</div>
-          {filtered.length===0&&<div style={{color:C.textMuted,textAlign:"center",padding:20}}>{t.noPenalties}</div>}
-          {filtered.map((p,i)=><div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.cyan}`,borderRadius:6,padding:"9px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+          </Card>
+          {/* HØJRE: Orbits-tekst */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.cyan}`,borderRadius:6,padding:"9px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
             <div style={{minWidth:0}}>
               <div style={{fontFamily:"monospace",fontSize:13,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{orbitsLine(p)}</div>
               <div style={{display:"flex",gap:4,marginTop:3}}><Badge style={{fontSize:8}}>{p.class}</Badge><Badge color={C.blue} style={{fontSize:8}}>{p.session}</Badge></div>
             </div>
             <button onClick={()=>{navigator.clipboard&&navigator.clipboard.writeText(orbitsCopyText(p));setCopiedIdx(i);setTimeout(()=>setCopiedIdx(null),1500);}} style={{background:copiedIdx===i?`${C.green}33`:C.surface2,border:`1px solid ${copiedIdx===i?C.green:C.border}`,borderRadius:6,padding:"6px 12px",color:copiedIdx===i?C.green:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>{copiedIdx===i?t.admCopied:t.admCopy}</button>
-          </div>)}
-        </div>
+          </div>
+        </React.Fragment>)}
       </div>;
     })()}
     </>}
