@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.124";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -2414,7 +2414,7 @@ function OfficialWeightScreen({state,dispatch}){
   const submitAll=()=>{
     Object.entries(flags).forEach(([uid,fl])=>{
       const usr=state.users.find(u=>u.id===parseInt(uid))||state.users.find(u=>String(u.id)===uid);
-      if(fl.weight){const cfg=state.stationPenalties?.weight||{};dispatch({type:"ADD_PENALTY",eventId:selEv,payload:{kartNo:usr?.kartNumber,driverName:usr?.name,class:selClass||"?",session:selSession,type:cfg.type||"Placering sidst",seconds:0,reason:cfg.reason||t.weightPenalty,time:new Date().toLocaleString("da-DK"),source:"weight_official",approved:false}});}
+      if(fl.weight){const cfg=state.stationPenalties?.weight||{};dispatch({type:"ADD_PENALTY",eventId:selEv,payload:{kartNo:usr?.kartNumber,driverName:usr?.name,class:selClass||"?",session:selSession,type:cfg.type||"Placering sidst",seconds:0,reason:cfg.reason||t.weightPenalty,time:new Date().toLocaleString("da-DK"),source:"weight_official",approved:false,reportedBy:u?.name}});}
     });
     dispatch({type:"SET_READY_SIGNAL",eventId:selEv,cls:selClass,session:selSession,stype:"weight",groups:selGroups,by:u?.name});
     notifyHeatDone(dispatch,state,{stationLabel:"Vægt",icon:"⚖️",eventId:selEv,cls:selClass,session:selSession,by:u?.name,adminOnly:true});
@@ -2549,7 +2549,7 @@ function OfficialNoseScreen({state,dispatch}){
         const isQual=selSession.toLowerCase().includes("kval")||selSession.toLowerCase().includes("qual");
         const noseType=isQual?(noseCfg.typeQual||"Hurtigste tid fjernes"):(noseCfg.typeOther||"Tidsstraf");
         const noseSec=isQual?0:5;
-        dispatch({type:"ADD_PENALTY",eventId:selEv,payload:{kartNo:usr?.kartNumber,driverName:usr?.name,userId:usr?.id,class:selClass||"?",session:selSession,type:noseType,seconds:noseSec,reason:noseCfg.reason||t.nosePenalty,time:new Date().toLocaleString("da-DK"),source:"nose_official",approved:false,nosePhotoUrl:photoUrl,nosePhotoPath:photoPath,photoDate:new Date().toISOString()}});
+        dispatch({type:"ADD_PENALTY",eventId:selEv,payload:{kartNo:usr?.kartNumber,driverName:usr?.name,userId:usr?.id,class:selClass||"?",session:selSession,type:noseType,seconds:noseSec,reason:noseCfg.reason||t.nosePenalty,time:new Date().toLocaleString("da-DK"),source:"nose_official",approved:false,nosePhotoUrl:photoUrl,nosePhotoPath:photoPath,photoDate:new Date().toISOString(),reportedBy:u?.name}});
       }
       dispatch({type:"SET_READY_SIGNAL",eventId:selEv,cls:selClass,session:selSession,stype:"nose",groups:selGroups,by:u?.name});
       notifyHeatDone(dispatch,state,{stationLabel:"Front fairing",icon:"🔧",eventId:selEv,cls:selClass,session:selSession,by:u?.name,adminOnly:true});
@@ -2712,7 +2712,7 @@ function OfficialTechScreen({state,dispatch}){
           dispatch({type:"ADD_TECH_PDF",eventId:selEv,payload:{driverId:d.id,driverName:d.name,kartNumber:d.kartNumber,class:selClass||"?",session:selSession,result:res,url:pdfUrl,time:new Date().toLocaleString("da-DK"),by:u?.name}});
         }
         if(res==="fejl"){
-          dispatch({type:"ADD_PENALTY",eventId:selEv,payload:{kartNo:d.kartNumber,driverName:d.name,userId:d.id,class:selClass||"?",session:selSession,type:typeSel[d.id]||techTypes[0]||"Teknisk fejl",seconds:0,reason:note[d.id]||techCfg.reason||"Teknisk kontrol – ikke godkendt",time:new Date().toLocaleString("da-DK"),source:"tech_official",approved:false,techPdfUrl:pdfUrl,photoDate:new Date().toISOString()}});
+          dispatch({type:"ADD_PENALTY",eventId:selEv,payload:{kartNo:d.kartNumber,driverName:d.name,userId:d.id,class:selClass||"?",session:selSession,type:typeSel[d.id]||techTypes[0]||"Teknisk fejl",seconds:0,reason:note[d.id]||techCfg.reason||"Teknisk kontrol – ikke godkendt",time:new Date().toLocaleString("da-DK"),source:"tech_official",approved:false,techPdfUrl:pdfUrl,photoDate:new Date().toISOString(),reportedBy:u?.name}});
         }
       }
       dispatch({type:"SET_READY_SIGNAL",eventId:selEv,cls:selClass,session:selSession,stype:"tech",groups:selGroups,by:u?.name});
@@ -2870,7 +2870,7 @@ function OfficialInspectionScreen({state,dispatch}){
 
   const finish=()=>{
     pending.forEach(p=>{
-      dispatch({type:"ADD_PENALTY",eventId:selEv,payload:{kartNo:parseInt(p.kartNo)||0,driverName:"",class:form.class,session:form.session,type:p.type,seconds:p.seconds,reason:p.reason,time:new Date().toLocaleString("da-DK"),source:"inspection_official",approved:false}});
+      dispatch({type:"ADD_PENALTY",eventId:selEv,payload:{kartNo:parseInt(p.kartNo)||0,driverName:"",class:form.class,session:form.session,type:p.type,seconds:p.seconds,reason:p.reason,time:new Date().toLocaleString("da-DK"),source:"inspection_official",approved:false,reportedBy:u?.name}});
     });
     dispatch({type:"ADD_INSPECTION",eventId:selEv,payload:{...form,by:u?.name,time:new Date().toLocaleString("da-DK")}});
     dispatch({type:"SET_READY_SIGNAL",eventId:selEv,cls:form.class,session:form.session,stype:"inspection",groups:form.groups,by:u?.name});
@@ -3336,7 +3336,10 @@ function ReadySignalsCard({ev,dispatch}){
             {insMatch&&insMatch.notes&&<div style={{color:C.textMuted,fontSize:10,marginTop:2}}>{insMatch.notes}</div>}
           </div>;
         })()}
-        <span style={{color:C.textMuted,fontSize:10}}>{s.time}</span>
+        <div style={{textAlign:"right"}}>
+          <div style={{color:C.textMuted,fontSize:10}}>{s.time}</div>
+          {s.by&&<div style={{color:C.textDim,fontSize:9}}>{s.by}</div>}
+        </div>
       </div>;
     })}
   </Card>;
@@ -4555,7 +4558,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
 
   const add=()=>{
     if(!form.kartNo)return;
-    dispatch({type:"ADD_PENALTY",eventId:parseInt(selEv),payload:{...form,kartNo:parseInt(form.kartNo)||0,seconds:parseInt(form.seconds)||0,time:new Date().toLocaleString("da-DK"),source:"manual",approved:true}});
+    dispatch({type:"ADD_PENALTY",eventId:parseInt(selEv),payload:{...form,kartNo:parseInt(form.kartNo)||0,seconds:parseInt(form.seconds)||0,time:new Date().toLocaleString("da-DK"),source:"manual",approved:true,reportedBy:state.currentUser?.name}});
     setForm(f=>({...f,driverName:"",kartNo:"",reason:""}));
   };
 
@@ -4679,7 +4682,10 @@ function AdminPenalties({state,dispatch,seriesScope}){
             return <div key={i} style={{padding:"5px 0",borderBottom:i<byClass[cls].length-1?`1px solid ${C.border}`:"none"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:6}}>
                 <div style={{color:C.text,fontSize:11}}>{s.session}{displayGroups&&displayGroups.length?" "+displayGroups.join("+"):""}{!insMatch?" · "+(READY_SIGNAL_LABELS[s.stype]||s.stype):""}</div>
-                <span style={{color:C.textMuted,fontSize:9,flexShrink:0}}>{s.time}</span>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <div style={{color:C.textMuted,fontSize:9}}>{s.time}</div>
+                  {s.by&&<div style={{color:C.textDim,fontSize:8}}>{s.by}</div>}
+                </div>
               </div>
               {insMatch&&<div style={{display:"flex",gap:4,marginTop:2}}>{checks.map(([k,l])=><Badge key={k} color={insMatch[k]===true?C.green:insMatch[k]===false?C.red:C.textMuted} style={{fontSize:8}}>{l}: {insMatch[k]===true?"OK":insMatch[k]===false?"FEJL":"—"}</Badge>)}</div>}
               {insMatch&&insMatch.notes&&<div style={{color:C.textMuted,fontSize:9,marginTop:2}}>{insMatch.notes}</div>}
@@ -4733,6 +4739,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
               <Badge color={showApproved?C.green:C.orange} style={{fontSize:9}}>{showApproved?t.admVisible:t.admPending}</Badge>
             </div>
             {p.reason&&<div style={{color:C.textMuted,fontSize:11,marginBottom:6}}>{p.reason}</div>}
+            {(p.reportedBy||p.time)&&<div style={{color:C.textDim,fontSize:10,marginBottom:6}}>{p.reportedBy?p.reportedBy+" · ":""}{p.time}</div>}
             {p.nosePhotoUrl&&<a href={p.nosePhotoUrl} target="_blank" rel="noreferrer" style={{display:"inline-block",marginBottom:6}}><img src={p.nosePhotoUrl} style={{width:80,height:60,objectFit:"cover",borderRadius:6,border:`1px solid ${C.border}`}} alt={t.admNoseFairingPhoto}/><div style={{color:C.blue,fontSize:9}}>📷 {t.admNoseFairingPhotoOfficialsOnly} – klik for stor</div></a>}
             <div style={{display:"flex",gap:6}}>
               {!showApproved&&<button onClick={()=>approvePenalty(p)} style={{flex:1,background:`${C.green}22`,border:`1px solid ${C.green}44`,borderRadius:6,padding:"7px",color:C.green,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{t.admApproveRelease}</button>}
@@ -6834,10 +6841,27 @@ function SyncBadge({status}){
     ?{loading:{c:"#FF8800",t:"Loading data..."},saving:{c:"#FF8800",t:"Saving..."},synced:{c:"#00CC66",t:"Synced"},error:{c:"#FF4466",t:"Sync error – check connection"}}
     :{loading:{c:"#FF8800",t:"Henter data..."},saving:{c:"#FF8800",t:"Gemmer..."},synced:{c:"#00CC66",t:"Synkroniseret"},error:{c:"#FF4466",t:"Sync-fejl – tjek forbindelse"}}
   )[status]||{c:"#888",t:status};
-  return <div style={{position:"fixed",bottom:8,right:8,zIndex:9999,display:"flex",alignItems:"center",gap:6,background:"rgba(20,20,20,0.9)",border:"1px solid #2a2a2a",borderRadius:20,padding:"4px 10px",pointerEvents:"none"}}>
-    <div style={{width:8,height:8,borderRadius:"50%",background:cfg.c,animation:status==="saving"||status==="loading"?"pulse 1s infinite":"none"}}/>
-    <span style={{color:"#999",fontSize:10,fontFamily:"'Barlow',sans-serif"}}>{cfg.t}</span>
-  </div>;
+  // The small dot is easy to miss, especially mid-task — a sync error means recent changes may
+  // not have actually reached the server, so it also gets a hard-to-miss top banner. Dismissing
+  // it only hides it for this specific error; if status recovers and then errors again later,
+  // the banner reappears for that new occurrence.
+  const [dismissed,setDismissed]=useState(false);
+  const wasError=useRef(false);
+  useEffect(()=>{
+    if(status==="error"&&!wasError.current)setDismissed(false);
+    wasError.current=status==="error";
+  },[status]);
+  return <>
+    {status==="error"&&!dismissed&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:10000,background:"#FF4466",color:"#fff",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"center",gap:14,flexWrap:"wrap",fontFamily:"'Barlow',sans-serif",fontSize:13,fontWeight:700,boxShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>
+      <span>⚠️ {lang==="en"?"Sync error — your recent changes may not have been saved.":"Sync-fejl — dine seneste ændringer er muligvis ikke blevet gemt."}</span>
+      <button onClick={()=>window.location.reload()} style={{background:"#fff",color:"#FF4466",border:"none",borderRadius:6,padding:"4px 12px",fontWeight:900,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{lang==="en"?"Reload":"Genindlæs"}</button>
+      <button onClick={()=>setDismissed(true)} style={{background:"transparent",color:"#fff",border:"1px solid rgba(255,255,255,0.5)",borderRadius:6,padding:"4px 10px",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+    </div>}
+    <div style={{position:"fixed",bottom:8,right:8,zIndex:9999,display:"flex",alignItems:"center",gap:6,background:"rgba(20,20,20,0.9)",border:"1px solid #2a2a2a",borderRadius:20,padding:"4px 10px",pointerEvents:"none"}}>
+      <div style={{width:8,height:8,borderRadius:"50%",background:cfg.c,animation:status==="saving"||status==="loading"?"pulse 1s infinite":"none"}}/>
+      <span style={{color:"#999",fontSize:10,fontFamily:"'Barlow',sans-serif"}}>{cfg.t}</span>
+    </div>
+  </>;
 }
 
 // Fields that are NOT synced to app_state
@@ -6940,7 +6964,7 @@ function App(){
         sb.from("app_state").select("data").eq("id",1).maybeSingle(),
         sb.from("penalties").select("*"),
         sb.from("ready_signals").select("*"),
-        sb.from("notifications").select("*").order("id",{ascending:false}),
+        sb.from("notifications").select("*").order("id",{ascending:false}).limit(150),
         sb.from("registrations").select("*"),
         sb.from("imported_users").select("*"),
       ]);
