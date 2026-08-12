@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.129";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -2823,7 +2823,9 @@ function TechPdfScreen({state,dispatch,useGlobalEv=false}){
     if(isSub)return mySeriesIds.includes(Number(ev.seriesId));
     return (ev.techOfficials||[]).includes(u?.id);
   });
-  const [localSelEv,setLocalSelEv]=useState(String(accessibleEvents[0]?.id||""));
+  const sharedRace=state.uiPrefs?.selectedRace;
+  const [localSelEv,setLocalSelEvRaw]=useState((!useGlobalEv&&sharedRace)?String(sharedRace):String(accessibleEvents[0]?.id||""));
+  const setLocalSelEv=v=>{setLocalSelEvRaw(v);if(!useGlobalEv)dispatch({type:"SET_UI_PREF",key:"selectedRace",value:String(v)});};
   const selEv=useGlobalEv?getAdminSelEv(state,accessibleEvents):localSelEv;
   const setSelEv=useGlobalEv?(v=>setAdminSelEv(dispatch,v)):setLocalSelEv;
   const ev=accessibleEvents.find(e=>String(e.id)===selEv)||accessibleEvents[0];
@@ -6312,7 +6314,9 @@ function AdminImport({state,dispatch,seriesScope}){
 function DriverListScreen({state,dispatch,useGlobalEv=false,seriesScope=null}){
   const t=useT();
   const scopedEvents=eventsInScope(state.events,seriesScope);
-  const [localSelEv,setLocalSelEv]=useState(String(scopedEvents[0]?.id));
+  const sharedRace=state.uiPrefs?.selectedRace;
+  const [localSelEv,setLocalSelEvRaw]=useState((!useGlobalEv&&sharedRace)?String(sharedRace):String(scopedEvents[0]?.id));
+  const setLocalSelEv=v=>{setLocalSelEvRaw(v);if(!useGlobalEv)dispatch({type:"SET_UI_PREF",key:"selectedRace",value:String(v)});};
   const selEv=useGlobalEv?getAdminSelEv(state,scopedEvents):localSelEv;
   const setSelEv=useGlobalEv?(v=>setAdminSelEv(dispatch,v)):setLocalSelEv;
   const [selClass,setSelClass]=useState("Alle");
@@ -6422,7 +6426,9 @@ function DriverListScreen({state,dispatch,useGlobalEv=false,seriesScope=null}){
 function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
   const t=useT();
   const scopedEvents=eventsInScope(state.events,seriesScope);
-  const [localSelEv,setLocalSelEv]=useState(String(scopedEvents[0]?.id));
+  const sharedRace=state.uiPrefs?.selectedRace;
+  const [localSelEv,setLocalSelEvRaw]=useState((!useGlobalEv&&sharedRace)?String(sharedRace):String(scopedEvents[0]?.id));
+  const setLocalSelEv=v=>{setLocalSelEvRaw(v);if(!useGlobalEv)dispatch({type:"SET_UI_PREF",key:"selectedRace",value:String(v)});};
   const selEv=useGlobalEv?getAdminSelEv(state,scopedEvents):localSelEv;
   const setSelEv=useGlobalEv?(v=>setAdminSelEv(dispatch,v)):setLocalSelEv;
   const [selClass,setSelClass]=useState("Alle");
