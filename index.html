@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.131";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -7215,18 +7215,18 @@ function App(){
   },[]);
 
   // 2) Save app state (debounced) – excl. profiles
-  useEffect(()=>{
-    if(!sb||!loaded.current)return;
-    if(skipNextSave.current){skipNextSave.current=false;return;}
-    const rest=stripLocal(state);
+  const saveInFlight=useRef(false);
+  const saveQueued=useRef(false);
+  const runSave=async()=>{
+    // Never let two saves race each other — if one is already in flight, just flag that another
+    // save is needed once it finishes, rather than starting a second concurrent request. This is
+    // what actually prevents the "toggle two drivers quickly" scenario from corrupting data: with
+    // this in place there is structurally never more than one write in flight at a time, so there's
+    // nothing left for an out-of-order network response to race against.
+    if(saveInFlight.current){saveQueued.current=true;return;}
+    const rest=stripLocal(stateRef.current);
     const json=JSON.stringify(rest);
     if(json===lastSaved.current){pendingSave.current=false;return;}
-    // Safety net, independent of any specific bug: refuse to save if this would wipe out races
-    // that we previously had confirmed were saved. This can only ever BLOCK a save, never force
-    // one through, so it can't itself cause data loss — it exists purely so that if local state
-    // ever ends up unexpectedly empty for a reason we haven't anticipated, autosave can't turn
-    // that into a permanent server-side loss. A real "delete all my races" action doesn't exist
-    // in this app, so dropping from several events to exactly zero is never a legitimate save.
     try{
       const prevEvents=lastSaved.current?(JSON.parse(lastSaved.current).events||[]).length:0;
       const newEvents=(rest.events||[]).length;
@@ -7237,14 +7237,23 @@ function App(){
         return;
       }
     }catch(e){/* if this check itself fails for any reason, fall through to the normal save */}
+    saveInFlight.current=true;
     pendingSave.current=true;
     setSync("saving");
-    const t=setTimeout(async()=>{
-      const {error}=await sb.from("app_state").update({data:rest,client:CLIENT_ID,updated_at:new Date().toISOString()}).eq("id",1);
-      pendingSave.current=false;
-      if(error){console.error("Supabase save:",error);setSync("error");}
-      else{lastSaved.current=json;setSync("synced");}
-    },800);
+    const {error}=await sb.from("app_state").update({data:rest,client:CLIENT_ID,updated_at:new Date().toISOString()}).eq("id",1);
+    saveInFlight.current=false;
+    pendingSave.current=false;
+    if(error){console.error("Supabase save:",error);setSync("error");}
+    else{lastSaved.current=json;setSync("synced");}
+    if(saveQueued.current){saveQueued.current=false;runSave();}
+  };
+  useEffect(()=>{
+    if(!sb||!loaded.current)return;
+    if(skipNextSave.current){skipNextSave.current=false;return;}
+    const rest=stripLocal(state);
+    const json=JSON.stringify(rest);
+    if(json===lastSaved.current)return;
+    const t=setTimeout(runSave,800);
     return()=>clearTimeout(t);
   },[state]);
 
