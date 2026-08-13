@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.135";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -3013,54 +3013,6 @@ function OfficialInspectionScreen({state,dispatch}){
 }
 
 // ── USER APP SHELL ────────────────────────────────────────────────
-function OfficialNotifScreen({state,dispatch}){
-  const u=state.currentUser;
-  const [form,setForm,clearNotifDraft]=useDraft("gc_draft_sendnotif_official",{title:"",body:"",targetClass:"Alle",eventId:String(state.events[0]?.id),officialsOnly:false});
-  const [sent,setSent]=useState(false);
-
-  const setClass=(cls)=>{
-    setForm(f=>{
-      const oldPrefix=f.targetClass!=="Alle"?f.targetClass+": ":"";
-      const stripped=f.title.startsWith(oldPrefix)?f.title.slice(oldPrefix.length):f.title;
-      const newPrefix=cls!=="Alle"?cls+": ":"";
-      return{...f,targetClass:cls,title:newPrefix+stripped};
-    });
-  };
-
-  const send=()=>{
-    if(!form.title)return;
-    dispatch({type:"ADD_NOTIFICATION",payload:{...form,eventId:parseInt(form.eventId),time:new Date().toLocaleString("da-DK"),by:u?.name}});
-    setSent(true);setTimeout(()=>setSent(false),2000);
-    setForm(f=>({...f,title:"",body:""}));
-    clearNotifDraft();
-  };
-
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
-    <SH title="Send notifikation"/>
-    <div style={{background:"#1a001a",border:"1px solid #9B59B644",borderRadius:6,padding:8,marginBottom:12,display:"flex",gap:6,alignItems:"center"}}>
-      <span>🔒</span><span style={{color:C.purple,fontSize:11,fontWeight:700}}>Kun officials med tilladelse</span>
-    </div>
-    <Card style={{borderLeft:`3px solid ${C.red}`}}>
-      <Sel label="Løb" value={form.eventId} onChange={v=>setForm(f=>({...f,eventId:v}))} options={state.events.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(e=>({value:String(e.id),label:e.name}))}/>
-      <Sel label="Klasse" value={form.targetClass} onChange={setClass} options={["Alle",...(()=>{const ev=state.events.find(e=>String(e.id)===form.eventId);return(ev?.classes&&ev.classes.length)?ev.classes:sortClassesByAge(Object.keys(state.classRules),state.classRules);})()]}/>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-        <span style={{color:C.textMuted,fontSize:11}}>Kun officials</span>
-        <button onClick={()=>setForm(f=>({...f,officialsOnly:!f.officialsOnly}))} style={{background:form.officialsOnly?`${C.purple}33`:C.surface2,border:`1px solid ${form.officialsOnly?C.purple:C.border}`,borderRadius:20,padding:"3px 12px",color:form.officialsOnly?C.purple:C.textMuted,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>{form.officialsOnly?"✓ KUN OFFICIALS":"ALLE"}</button>
-      </div>
-      <div style={{marginBottom:8}}>
-        <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:4,textTransform:"uppercase"}}>Overskrift</div>
-        <input value={form.targetClass!=="Alle"?form.title.replace(new RegExp("^"+form.targetClass+": "),""):form.title} onChange={e=>{const prefix=form.targetClass!=="Alle"?form.targetClass+": ":"";setForm(f=>({...f,title:prefix+e.target.value}));}} placeholder="Skriv overskrift..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 12px",color:C.text,fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
-        {form.targetClass!=="Alle"&&<div style={{fontSize:10,color:C.textMuted,marginTop:3}}>Vises som: <strong style={{color:C.text}}>{form.title||form.targetClass+": ..."}</strong></div>}
-      </div>
-      <div style={{marginBottom:10}}>
-        <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:4,textTransform:"uppercase"}}>Besked</div>
-        <textarea value={form.body} onChange={e=>setForm(f=>({...f,body:e.target.value}))} rows={2} placeholder="Beskedtekst..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 12px",color:C.text,fontSize:12,boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
-      </div>
-      {sent?<div style={{background:`${C.green}22`,border:`1px solid ${C.green}44`,borderRadius:8,padding:12,textAlign:"center",color:C.green,fontWeight:700}}>✅ Sendt!</div>:<Btn onClick={send} style={{width:"100%"}} disabled={!form.title}>📣 SEND NOTIFIKATION</Btn>}
-    </Card>
-  </div>;
-}
-
 function UserApp({state,dispatch}){
   const t=useT();
   const [tab,setTab]=useState("calendar");
@@ -3222,7 +3174,7 @@ function UserApp({state,dispatch}){
       {tab==="licensecheck"&&isOff&&<LicenseControl state={state} dispatch={dispatch}/>}
       {tab==="driverlist"&&isOff&&<DriverListScreen state={state} dispatch={dispatch}/>}
       {tab==="techpdfs"&&canSeeTechPdfs&&<TechPdfScreen state={state} dispatch={dispatch}/>}
-      {tab==="sendnotif"&&isOff&&u?.canSendNotif&&<OfficialNotifScreen state={state} dispatch={dispatch}/>}
+      {tab==="sendnotif"&&isOff&&u?.canSendNotif&&<AdminNotifications state={state} dispatch={dispatch}/>}
       {tab==="profile"&&<ProfileScreen state={state} dispatch={dispatch}/>}
       {tab==="kartreg"&&<KartRegisterScreen state={state} dispatch={dispatch}/>}
     </div>
@@ -4327,11 +4279,14 @@ function AdminOfficials({state,dispatch,seriesScope}){
   </div>;
 }
 
-function AdminNotifications({state,dispatch,seriesScope}){
+function AdminNotifications({state,dispatch,seriesScope,useGlobalEv=false}){
   const t=useT();
   const scopedEvs=eventsInScope(state.events,seriesScope);
-  const selEv=getAdminSelEv(state,scopedEvs);
-  const setSelEv=v=>setAdminSelEv(dispatch,v);
+  const sharedRace=state.uiPrefs?.selectedRace;
+  const [localSelEv,setLocalSelEvRaw]=useState((!useGlobalEv&&sharedRace)?String(sharedRace):String(scopedEvs[0]?.id||""));
+  const setLocalSelEv=v=>{setLocalSelEvRaw(v);if(!useGlobalEv)dispatch({type:"SET_UI_PREF",key:"selectedRace",value:String(v)});};
+  const selEv=useGlobalEv?getAdminSelEv(state,scopedEvs):localSelEv;
+  const setSelEv=useGlobalEv?(v=>setAdminSelEv(dispatch,v)):setLocalSelEv;
   const [form,setForm]=useState({title:"",body:"",targetClass:"Alle",session:"",groups:[],officialsOnly:false});
   const ev=state.events.find(e=>e.id===parseInt(selEv));
   const groupLetters=form.targetClass!=="Alle"&&form.session?sessionGroupLetters(ev,form.targetClass,form.session):[];
@@ -4353,7 +4308,7 @@ function AdminNotifications({state,dispatch,seriesScope}){
     dispatch({type:"ADD_NOTIFICATION",payload:{
       title:offForm.title,body:offForm.body,targetClass:"Alle",officialsOnly:true,
       eventId:offForm.eventId?parseInt(offForm.eventId):null,
-      time:new Date().toLocaleString("da-DK"),by:"Admin",
+      time:new Date().toLocaleString("da-DK"),by:state.currentUser?.name||"Admin",
     }});
     // Push to all officials
     sendPushNotification({title:offForm.title,body:offForm.body,userIds:resolveNotifRecipients(state.users,{officialsOnly:true})});
@@ -4369,7 +4324,7 @@ function AdminNotifications({state,dispatch,seriesScope}){
     if(!userForm.userId||!userForm.title)return;
     dispatch({type:"ADD_NOTIFICATION",payload:{
       title:userForm.title,body:userForm.body,targetUserId:userForm.userId,
-      time:new Date().toLocaleString("da-DK"),by:"Admin",
+      time:new Date().toLocaleString("da-DK"),by:state.currentUser?.name||"Admin",
     }});
     sendPushNotification({title:userForm.title,body:userForm.body,userIds:[userForm.userId]});
     setUserSent(true);setTimeout(()=>setUserSent(false),2000);
@@ -4379,7 +4334,7 @@ function AdminNotifications({state,dispatch,seriesScope}){
   const send=()=>{
     if(!form.title)return;
     const fullTitle=buildPrefix(form)+form.title;
-    dispatch({type:"ADD_NOTIFICATION",payload:{title:fullTitle,body:form.body,targetClass:form.targetClass,officialsOnly:form.officialsOnly,eventId:parseInt(selEv),time:new Date().toLocaleString("da-DK"),by:"Admin"}});
+    dispatch({type:"ADD_NOTIFICATION",payload:{title:fullTitle,body:form.body,targetClass:form.targetClass,officialsOnly:form.officialsOnly,eventId:parseInt(selEv),time:new Date().toLocaleString("da-DK"),by:state.currentUser?.name||"Admin"}});
     sendPushNotification({title:fullTitle,body:form.body,userIds:resolveNotifRecipients(state.users,{targetClass:form.targetClass,officialsOnly:form.officialsOnly})});
     setSent(true);setTimeout(()=>setSent(false),2000);
     setForm(f=>({...f,title:"",body:""}));
@@ -6970,7 +6925,7 @@ function AdminApp({state,dispatch}){
       {activeSec==="users"&&<AdminUsers state={state} dispatch={dispatch}/>}
       {activeSec==="officials"&&<AdminOfficials state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
       {activeSec==="docs"&&<AdminDocuments state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
-      {activeSec==="notifications"&&<AdminNotifications state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
+      {activeSec==="notifications"&&<AdminNotifications state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null} useGlobalEv/>}
       {activeSec==="penalties"&&<AdminPenalties state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
       {activeSec==="setup"&&<AdminSetup state={state} dispatch={dispatch}/>}
       {activeSec==="inspection"&&<AdminInspection state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
