@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.134";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -4843,7 +4843,6 @@ function AdminPenalties({state,dispatch,seriesScope}){
 
 function AdminInspection({state,dispatch,seriesScope}){
   const t=useT();
-  const [tab,setTab]=useState("reporting");
   const scopedEvs=eventsInScope(state.events,seriesScope);
   const selEv=getAdminSelEv(state,scopedEvs);
   const setSelEv=v=>setAdminSelEv(dispatch,v);
@@ -4865,16 +4864,6 @@ function AdminInspection({state,dispatch,seriesScope}){
     <div style={{background:"#1a001a",border:"1px solid #9B59B644",borderRadius:6,padding:8,marginBottom:10,display:"flex",gap:6,alignItems:"center"}}>
       <span>🔒</span><span style={{color:C.purple,fontSize:11,fontWeight:700}}>{t.admOnlyAdminOfficials}</span>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-      <button onClick={()=>setTab("reporting")} style={{background:tab==="reporting"?`${C.purple}22`:C.surface2,border:`2px solid ${tab==="reporting"?C.purple:C.border}`,borderRadius:8,padding:"10px",cursor:"pointer",textAlign:"center",fontFamily:"inherit"}}>
-        <div style={{color:tab==="reporting"?C.purple:C.textMuted,fontWeight:700,fontSize:12,letterSpacing:1}}>{t.admReportingTab}</div>
-      </button>
-      <button onClick={()=>setTab("notifications")} style={{background:tab==="notifications"?`${C.red}22`:C.surface2,border:`2px solid ${tab==="notifications"?C.red:C.border}`,borderRadius:8,padding:"10px",cursor:"pointer",textAlign:"center",fontFamily:"inherit"}}>
-        <div style={{color:tab==="notifications"?C.red:C.textMuted,fontWeight:700,fontSize:12,letterSpacing:1}}>{t.admNotifTab}</div>
-      </button>
-    </div>
-    {tab==="notifications"&&<AdminNotifications state={state} dispatch={dispatch} seriesScope={seriesScope}/>}
-    {tab==="reporting"&&<>
     <Sel label={t.race} value={selEv} onChange={setSelEv} options={eventsInScope(state.events,seriesScope).map(e=>({value:String(e.id),label:e.name}))}/>
     <Card style={{borderLeft:`3px solid ${C.purple}`}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -4900,7 +4889,6 @@ function AdminInspection({state,dispatch,seriesScope}){
         :<Btn onClick={finish} style={{width:"100%",background:C.green,color:"#000",fontWeight:900}}>{t.admFinishHeat}</Btn>}
     </Card>
     <ReadySignalsCard ev={ev} dispatch={dispatch}/>
-    </>}
   </div>;
 }
 
@@ -6890,7 +6878,7 @@ function AdminApp({state,dispatch}){
   const isSub=!isFullAdmin&&cu?.isSubAdmin;
   const mySeriesIds=(cu?.adminSeriesIds||[]).map(Number);
   // Sections a sub-admin is allowed to see (per plan). Main admin sees everything.
-  const subAllowed=new Set(["dashboard","events","registrations","driverlist","import","groups","officials","docs","penalties","inspection","standings","techpdfs","scanning"]);
+  const subAllowed=new Set(["dashboard","events","registrations","driverlist","import","groups","officials","docs","notifications","penalties","inspection","standings","techpdfs","scanning"]);
 
   const [sec,setSec]=useState("dashboard");
   const [isMobile,setIsMobile]=useState(typeof window!=="undefined"?window.innerWidth<768:false);
@@ -6921,6 +6909,7 @@ function AdminApp({state,dispatch}){
     {id:"licensecheck",icon:"🪪",label:t.navLicenseCheckAdmin},
     {id:"groups",icon:"🏳",label:t.navGroups},
     {id:"docs",icon:"📄",label:t.navDocsAdmin},
+    {id:"notifications",icon:"🔔",label:t.navNotificationsAdmin},
     {id:"penalties",icon:"⚠️",label:t.navPenaltiesAdmin,badge:totalPending},
     {id:"inspection",icon:"🔍",label:t.navInspectionAdmin},
     {id:"techpdfs",icon:"📄",label:t.navTechPdfs},
@@ -6981,6 +6970,7 @@ function AdminApp({state,dispatch}){
       {activeSec==="users"&&<AdminUsers state={state} dispatch={dispatch}/>}
       {activeSec==="officials"&&<AdminOfficials state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
       {activeSec==="docs"&&<AdminDocuments state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
+      {activeSec==="notifications"&&<AdminNotifications state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
       {activeSec==="penalties"&&<AdminPenalties state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
       {activeSec==="setup"&&<AdminSetup state={state} dispatch={dispatch}/>}
       {activeSec==="inspection"&&<AdminInspection state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
