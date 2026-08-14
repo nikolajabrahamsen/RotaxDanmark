@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.137";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -3024,6 +3024,18 @@ function UserApp({state,dispatch}){
   const isStandalone=(window.matchMedia&&window.matchMedia("(display-mode: standalone)").matches)||window.navigator.standalone===true;
   const isiOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
   const iosNeedsInstall=isiOS&&!isStandalone;
+
+  // When a push notification is tapped, the service worker posts this message back to the app —
+  // navigate straight to the notifications screen so the tap actually goes somewhere useful,
+  // rather than just opening/focusing the app on whatever screen it happened to be on before.
+  useEffect(()=>{
+    if(!navigator.serviceWorker)return;
+    const handler=(event)=>{
+      if(event.data?.type==="notif-click")setTab("notif");
+    };
+    navigator.serviceWorker.addEventListener("message",handler);
+    return()=>navigator.serviceWorker.removeEventListener("message",handler);
+  },[]);
 
   // Push: automatic request after login (must come before any early return – Rules of Hooks)
   useEffect(()=>{
@@ -6838,6 +6850,15 @@ function AdminApp({state,dispatch}){
   const [sec,setSec]=useState("dashboard");
   const [isMobile,setIsMobile]=useState(typeof window!=="undefined"?window.innerWidth<768:false);
   const [menuOpen,setMenuOpen]=useState(false);
+  // Same as UserApp — navigate to the notifications screen when a push notification is tapped.
+  useEffect(()=>{
+    if(!navigator.serviceWorker)return;
+    const handler=(event)=>{
+      if(event.data?.type==="notif-click")setSec("notifications");
+    };
+    navigator.serviceWorker.addEventListener("message",handler);
+    return()=>navigator.serviceWorker.removeEventListener("message",handler);
+  },[]);
   useEffect(()=>{
     const onResize=()=>setIsMobile(window.innerWidth<768);
     window.addEventListener("resize",onResize);
