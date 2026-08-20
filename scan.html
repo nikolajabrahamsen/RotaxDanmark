@@ -69,7 +69,7 @@ function CameraScanModal({title,onResult,onClose}){
         const cb=(result)=>{
           if(cancelled||!result)return;
           cancelled=true;
-          onResult(result.getText());
+          onResult(sanitizeScanText(result.getText()));
           try{controls&&controls.stop();}catch(e){}
           try{reader.reset();}catch(e){}
         };
@@ -163,6 +163,11 @@ function sessionGroupLetters(ev,cls,session){
 }
 
 const PART_LABELS={frame:"Ramme",motor:"Motor",slick:"Slicks",wet:"Regndæk"};
+// Some barcode/QR generators wrap a plain number in a URI scheme (e.g. "tel:100246" instead of just
+// "100246"). Strip that off so scanned camera results match what a handscanner or manual entry gives.
+function sanitizeScanText(text){
+  return (text||"").replace(/^(tel|sms|smsto|mailto):+\/*/i,"").trim();
+}
 const PART_ICONS={frame:"🏎",motor:"⚙️",slick:"☀️",wet:"🌧"};
 
 // Plays a short alarm tone via WebAudio (best-effort; browsers require a user gesture at some
