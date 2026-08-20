@@ -70,6 +70,24 @@ function rowToUser(r){
   if(!r)return null;
   return{id:r.id,type:r.type||"driver",name:r.name||"",license:r.license||"",class:r.class||"",kartNumber:r.kart_number??undefined,club:r.club||"",childIds:r.child_ids||[],parentId:r.parent_id||null,isAdmin:!!r.is_admin,isSubAdmin:!!r.is_sub_admin,isOfficial:!!r.is_official};
 }
+// CSV-imported drivers and children live in the "imported_users" table (no Supabase Auth account),
+// mirrored here from the main app's rowToImportedUser so scan.html can show them too.
+function rowToImportedUser(r){
+  return {id:r.id,type:r.type||"driver",name:r.name||"",license:r.license||"",class:r.class||"",
+    kartNumber:r.kart_number??undefined,club:r.club||"",parentId:r.parent_id||null,isOfficial:!!r.is_official,
+    importBatch:r.import_batch||undefined,source:r.source||"imported"};
+}
+// Registrations live in their own "registrations" table (per event), not in the app_state blob –
+// see stripLocal in the main app. Without this, ev.registrations is always empty and no driver
+// (imported or not) can be found in scan/heat/profile mode.
+function rowToRegistration(r){
+  return {userId:r.user_id,class:r.class,paid:!!r.paid,imported:!!r.imported,importBatch:r.import_batch||undefined};
+}
+function attachRegistrations(events,regRows){
+  const byEv={};
+  (regRows||[]).forEach(r=>{(byEv[r.event_id]=byEv[r.event_id]||[]).push(rowToRegistration(r));});
+  return (events||[]).map(ev=>({...ev,registrations:byEv[ev.id]||[]}));
+}
 function resolveGroups(ev,cls,session){
   const sg=ev?.sessionGroups||{};
   return sg[`${cls}||${session}`]||sg[`${cls}||*`]||null;
@@ -129,14 +147,16 @@ function App(){
   useEffect(()=>{
     if(!session)return;
     (async()=>{
-      const [{data:profiles},{data:stateRow}]=await Promise.all([
+      const [{data:profiles},{data:stateRow},{data:regRows},{data:importedRows}]=await Promise.all([
         sb.from("profiles").select("*"),
         sb.from("app_state").select("data").eq("id",1).maybeSingle(),
+        sb.from("registrations").select("*"),
+        sb.from("imported_users").select("*"),
       ]);
-      const imported=stateRow?.data?.importedUsers||[];
+      const imported=(importedRows||[]).map(rowToImportedUser);
       const merged=[...(profiles||[]).map(rowToUser),...imported];
       setUsers(merged);
-      setEvents(stateRow?.data?.events||[]);
+      setEvents(attachRegistrations(stateRow?.data?.events||[],regRows||[]));
       setSessions(stateRow?.data?.sessions||[]);
       setLoaded(true);
     })();
@@ -200,7 +220,7 @@ function App(){
             <button key={id} onClick={()=>setMode(id)} style={{flex:1,background:mode===id?`${C.red}22`:C.surface2,border:`2px solid ${mode===id?C.red:C.border}`,borderRadius:8,padding:"8px 4px",cursor:"pointer",color:mode===id?C.red:C.textMuted,fontWeight:700,fontSize:12,fontFamily:"inherit"}}>{label}</button>
           )}
         </div>
-        {mode==="scan"&&<ScanMode ev={ev} users={users} sessions={sessions} scans={scans} addScan={addScan}/>}
+        {mode==="scan"&&<ScanMode ev={ev} users={users} sessions={sessions} scans={scans} addScan={addScan} me={me}/>}
         {mode==="heat"&&<HeatOverview ev={ev} users={users} sessions={sessions} scans={scans}/>}
         {mode==="profile"&&<DriverProfile ev={ev} users={users} scans={scans}/>}
       </>}
@@ -220,7 +240,7 @@ function LoginGate(){
 }
 
 // ── SCAN MODE ────────────────────────────────────────────────────────────
-function ScanMode({ev,users,sessions,scans,addScan}){
+function ScanMode({ev,users,sessions,scans,addScan,me}){
   const [sessionCtx,setSessionCtx]=useState("checkin"); // "checkin" or a heat name
   const [code,setCode]=useState("");
   const [driver,setDriver]=useState(null);
@@ -230,7 +250,9 @@ function ScanMode({ev,users,sessions,scans,addScan}){
   const [alarm,setAlarm]=useState(null); // {part,barcode}
   const inputRef=useRef(null);
   const by=(JSON.parse(localStorage.getItem("gc_scan_by")||'""'))||"";
-  const [byName,setByName]=useState(by);
+  // Auto-select the logged-in official's own name (falls back to whatever was last picked on this
+  // device, then to blank). Still overridable via the dropdown below, e.g. if a device is shared.
+  const [byName,setByName]=useState(me?.name||by||"");
   // Officials assigned to scanning for this race (set in Admin → Officials). Falls back to every
   // official/admin if nobody's specifically assigned, matching how the other stations work.
   const scanningOfficialNames=((ev.scanningOfficials&&ev.scanningOfficials.length)
