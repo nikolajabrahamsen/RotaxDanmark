@@ -91,7 +91,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.150";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -517,7 +517,7 @@ const SESSION_OPTS=["Træning 1","Træning 2","Kvalifikation","Heat 1","Heat 2",
 const SESSION_TYPES=[{value:"kval",label:"Kvalifikation"},{value:"heat",label:"Heat"},{value:"prefinale",label:"Prefinale"},{value:"finale",label:"Finale"}];
 
 const initialState={
-  lang:"da",
+  lang:(typeof localStorage!=="undefined"&&localStorage.getItem("gc_lang"))||"da",
   classRules:{...DEFAULT_CLASSES},
   raceSeries:[{id:1,name:"Rotax Max Challenge DK 2026"},{id:2,name:"Rotax DM 2026"}],
   currentUser:null,
@@ -529,7 +529,10 @@ const initialState={
   champPdfs:{},
   champStandings:{},
   kartRegister:{ranges:{},numbers:{},releaseDate:"",renewOpenDate:""},
-  uiPrefs:{theme:(typeof localStorage!=="undefined"&&localStorage.getItem("gc_theme"))||"dark"},
+  // selectedRace is mirrored to localStorage (see the effect near registerServiceWorker) purely so
+  // scan.html — a separate page — can auto-select the same race on load. It stays out of Supabase
+  // sync just like the rest of uiPrefs (device-local).
+  uiPrefs:{theme:(typeof localStorage!=="undefined"&&localStorage.getItem("gc_theme"))||"dark",selectedRace:(typeof localStorage!=="undefined"&&localStorage.getItem("gc_selected_race"))||""},
   sessionGroups:{},
   regulations:[
     {id:1,title:"Teknisk Reglement 2026",file:"teknisk_2026.pdf",updated:"2026-01-15"},
@@ -7124,6 +7127,11 @@ function App(){
     document.body.style.background=state.uiPrefs?.theme==="light"?LIGHT_THEME.bg:DARK_THEME.bg;
     try{localStorage.setItem("gc_theme",state.uiPrefs?.theme==="light"?"light":"dark");}catch(e){}
   },[state.uiPrefs?.theme]);
+
+  // Mirror lang + selectedRace to localStorage too (device-local, same as theme) so scan.html can
+  // open with the same language and race already selected instead of the official having to redo it.
+  useEffect(()=>{try{localStorage.setItem("gc_lang",state.lang==="en"?"en":"da");}catch(e){}},[state.lang]);
+  useEffect(()=>{try{if(state.uiPrefs?.selectedRace)localStorage.setItem("gc_selected_race",String(state.uiPrefs.selectedRace));}catch(e){}},[state.uiPrefs?.selectedRace]);
 
   // Always register the service worker (not just when push is supported) – it's a prerequisite for
   // the browser to offer "Install app" on e.g. Windows/Chrome/Edge. Fails silently if SW isn't

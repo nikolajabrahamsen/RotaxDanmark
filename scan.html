@@ -31,7 +31,15 @@ const SUPABASE_URL="https://wqvipomhdinsglrrrzwj.supabase.co";
 const SUPABASE_ANON_KEY="sb_publishable_AjE2qVy8VOeclWTS45h9Ng_7aFj8wUS";
 const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storageKey:"gridcontrol-auth"}});
 
-const C={red:"#E30613",redDark:"#B30010",white:"#FFFFFF",bg:"#0D0D0D",surface:"#181818",surface2:"#232323",surface3:"#2a2a2a",border:"#2E2E2E",text:"#F5F5F5",textMuted:"#888",textDim:"#444",gold:"#FFD700",green:"#00CC66",orange:"#FF8800",blue:"#2080FF",purple:"#9B59B6",cyan:"#00CCCC"};
+// Same two palettes as the main app (index.html) — the theme itself (light/dark) is chosen there
+// and mirrored to localStorage, so we just read it once here rather than duplicating a toggle.
+const DARK_THEME={red:"#E30613",redDark:"#B30010",white:"#FFFFFF",bg:"#0D0D0D",surface:"#181818",surface2:"#232323",surface3:"#2a2a2a",border:"#2E2E2E",text:"#F5F5F5",textMuted:"#888",textDim:"#444",gold:"#FFD700",green:"#00CC66",orange:"#FF8800",blue:"#2080FF",purple:"#9B59B6",cyan:"#00CCCC"};
+const LIGHT_THEME={red:"#E30613",redDark:"#B30010",white:"#FFFFFF",bg:"#F4F4F4",surface:"#FFFFFF",surface2:"#F0F0F0",surface3:"#E4E4E4",border:"#DADADA",text:"#1A1A1A",textMuted:"#6B6B6B",textDim:"#AAAAAA",gold:"#B8860B",green:"#0A9E52",orange:"#CC6D00",blue:"#1A66CC",purple:"#7D3C98",cyan:"#0B8484"};
+let _storedTheme="dark";
+try{_storedTheme=localStorage.getItem("gc_theme")==="light"?"light":"dark";}catch(e){}
+const C={...(_storedTheme==="light"?LIGHT_THEME:DARK_THEME)};
+document.body.style.background=C.bg;
+document.body.style.color=C.text;
 
 // ── Small reusable UI atoms (mirrors the main app's styling) ───────────────
 function Card({children,style={},onClick}){
@@ -48,7 +56,7 @@ function Input({label,value,onChange,placeholder,type="text",autoFocus,onKeyDown
     {label&&<div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:4,textTransform:"uppercase"}}>{label}</div>}
     <div style={{display:"flex",gap:8}}>
       <input ref={inputRef} type={type} value={value} onChange={e=>onChange(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} autoFocus={autoFocus} style={{flex:1,minWidth:0,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"10px 12px",color:C.text,fontSize:14,boxSizing:"border-box",fontFamily:"inherit",...style}}/>
-      {onCamera&&<button type="button" onClick={onCamera} title="Scan med kamera" style={{flexShrink:0,width:44,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:18,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center"}}>📷</button>}
+      {onCamera&&<button type="button" onClick={onCamera} title={STR.cameraTitle} style={{flexShrink:0,width:44,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:18,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center"}}>📷</button>}
     </div>
   </div>;
 }
@@ -61,7 +69,7 @@ function CameraScanModal({title,onResult,onClose}){
   useEffect(()=>{
     let cancelled=false,reader=null,controls=null;
     (async()=>{
-      if(!window.ZXing){setError("Stregkode-scanning kunne ikke indlæses (tjek internetforbindelsen).");return;}
+      if(!window.ZXing){setError(STR.cameraLoadError);return;}
       try{
         const hints=new Map();
         if(window.ZXing.DecodeHintType)hints.set(window.ZXing.DecodeHintType.TRY_HARDER,true);
@@ -81,7 +89,7 @@ function CameraScanModal({title,onResult,onClose}){
           await reader.decodeFromVideoDevice(back?back.deviceId:undefined,videoRef.current,cb);
         }
       }catch(e){
-        if(!cancelled)setError("Kunne ikke få adgang til kameraet. Tjek at browseren har tilladelse til kamera.");
+        if(!cancelled)setError(STR.cameraPermError);
       }
     })();
     return ()=>{
@@ -95,8 +103,8 @@ function CameraScanModal({title,onResult,onClose}){
     {error
       ?<div style={{color:"#fff",textAlign:"center",maxWidth:320,fontSize:13,marginBottom:16}}>{error}</div>
       :<video ref={videoRef} muted playsInline style={{width:"100%",maxWidth:420,borderRadius:8,border:`2px solid ${C.red}`,background:"#000"}}/>}
-    <div style={{color:"#aaa",fontSize:12,marginTop:12,marginBottom:16,textAlign:"center"}}>Hold stregkoden foran kameraet</div>
-    <Btn variant="ghost" onClick={onClose} style={{color:"#fff",borderColor:"#ffffff44"}}>Luk</Btn>
+    <div style={{color:"#aaa",fontSize:12,marginTop:12,marginBottom:16,textAlign:"center"}}>{STR.cameraHold}</div>
+    <Btn variant="ghost" onClick={onClose} style={{color:"#fff",borderColor:"#ffffff44"}}>{STR.cameraClose}</Btn>
   </div>;
 }
 function Sel({label,value,onChange,options}){
@@ -163,12 +171,88 @@ function sessionGroupLetters(ev,cls,session){
 }
 
 const PART_LABELS={frame:"Ramme",motor:"Motor",slick:"Slicks",wet:"Regndæk"};
+const PART_LABELS_EN={frame:"Frame",motor:"Motor",slick:"Slicks",wet:"Wets"};
 // Some barcode/QR generators wrap a plain number in a URI scheme (e.g. "tel:100246" instead of just
 // "100246"). Strip that off so scanned camera results match what a handscanner or manual entry gives.
 function sanitizeScanText(text){
   return (text||"").replace(/^(tel|sms|smsto|mailto):+\/*/i,"").trim();
 }
 const PART_ICONS={frame:"🏎",motor:"⚙️",slick:"☀️",wet:"🌧"};
+
+// Read once at load – the language itself is chosen in the main app and mirrored to localStorage,
+// same pattern as the theme above, so scan.html just inherits whatever was last selected there.
+let _storedLang="da";
+try{_storedLang=localStorage.getItem("gc_lang")==="en"?"en":"da";}catch(e){}
+const LANG=_storedLang;
+document.title=LANG==="en"?"GridControl – Equipment scanning":"GridControl – Udstyrsscanning";
+document.documentElement.lang=LANG;
+const PARTS=LANG==="en"?PART_LABELS_EN:PART_LABELS;
+const STR={
+  da:{
+    loading:"Indlæser...",loginRequired:"Du skal være logget ind i hovedappen for at bruge udstyrsscanning.",
+    loginBtn:"Log ind i GridControl",notOfficial:"Udstyrsscanning er kun tilgængelig for officials og admin.",
+    race:"Løb",chooseRace:"Vælg løb...",backToApp:"← Til appen",
+    notAssigned:"Du er ikke tildelt udstyrsscanning til dette løb. Kontakt admin hvis det er en fejl.",
+    tabScan:"🔍 Scan",tabHeat:"🏁 Heat-oversigt",tabProfile:"👤 Kører-profil",
+    choosePrompt:"Vælg et løb for at komme i gang.",
+    yourName:"Dit navn (til log)",choose:"Vælg...",context:"Kontekst",checkinLong:"Indskrivning (start af løb)",
+    classProgress:"Scannet ind pr. klasse",
+    scanLicensePrompt:"Scan kørerens licens-stregkode for at starte",
+    licenseNumber:"Licensnummer",scanOrEnterLicense:"Scan eller indtast licens...",switchDriver:"Skift kører",
+    registered:"registreret",scanPrefix:"Scan",scanOrEnterBarcode:"Scan eller indtast stregkode...",
+    knownCodes:"Kendte koder:",noneYet:"Ingen registreret endnu",newFor:"Nyt",newCode:"Ny kode:",
+    alreadyRegistered:"Allerede registreret",
+    tireConfirm:n=>`Dette bliver dæk nr. ${n} af 5. Bekræft at det skal tilføjes.`,
+    partConfirm:(part,name)=>`Bekræft at denne ${part} skal tilføjes til ${name}s udstyr.`,
+    confirmAdd:"✓ Bekræft & tilføj",cancel:"Annuller",tooMany:"FOR MANGE",
+    alreadyHas5:(name,part)=>`${name} har allerede 5 registrerede ${part}.`,
+    codeNotApproved:code=>`Kode ${code} er ikke en del af de godkendte. Køreren skal afvises.`,
+    confirmReject:"BEKRÆFT & AFVIS KØRER",
+    class:"Klasse",chooseClass:"Vælg klasse...",session:"Session",checkin:"Indskrivning",group:"Gruppe",
+    scanned:"scannet",rejected:"afvist",missing:"mangler",
+    scannedLabel:"✓ Scannet",rejectedLabel:"⚠ Afvist",missingLabel:"Mangler",
+    noDriversFound:"Ingen kørere fundet for dette udvalg.",
+    searchDriver:"Søg kører (navn eller licens)",search:"Søg...",noneFound:"Ingen fundet",
+    nothingScannedYet:"Intet scannet endnu",rejectedTag:"(AFVIST)",
+    unknownLicense:v=>`Ukendt licensnummer: "${v}"`,notRegistered:name=>`${name} er ikke tilmeldt dette løb.`,
+    cameraTitle:"Scan med kamera",cameraLicenseTitle:"Scan licens-stregkode",
+    cameraPartTitle:part=>`Scan ${part}`,cameraHold:"Hold stregkoden foran kameraet",cameraClose:"Luk",
+    cameraLoadError:"Stregkode-scanning kunne ikke indlæses (tjek internetforbindelsen).",
+    cameraPermError:"Kunne ikke få adgang til kameraet. Tjek at browseren har tilladelse til kamera.",
+  },
+  en:{
+    loading:"Loading...",loginRequired:"You need to be logged in to the main app to use equipment scanning.",
+    loginBtn:"Log in to GridControl",notOfficial:"Equipment scanning is only available to officials and admins.",
+    race:"Race",chooseRace:"Select race...",backToApp:"← Back to app",
+    notAssigned:"You're not assigned to equipment scanning for this race. Contact an admin if this is a mistake.",
+    tabScan:"🔍 Scan",tabHeat:"🏁 Heat overview",tabProfile:"👤 Driver profile",
+    choosePrompt:"Select a race to get started.",
+    yourName:"Your name (for the log)",choose:"Select...",context:"Context",checkinLong:"Check-in (start of race)",
+    classProgress:"Scanned in per class",
+    scanLicensePrompt:"Scan the driver's license barcode to start",
+    licenseNumber:"License number",scanOrEnterLicense:"Scan or enter license...",switchDriver:"Switch driver",
+    registered:"registered",scanPrefix:"Scan",scanOrEnterBarcode:"Scan or enter barcode...",
+    knownCodes:"Known codes:",noneYet:"None registered yet",newFor:"New",newCode:"New code:",
+    alreadyRegistered:"Already registered",
+    tireConfirm:n=>`This will be tire no. ${n} of 5. Confirm it should be added.`,
+    partConfirm:(part,name)=>`Confirm that this ${part} should be added to ${name}'s equipment.`,
+    confirmAdd:"✓ Confirm & add",cancel:"Cancel",tooMany:"TOO MANY",
+    alreadyHas5:(name,part)=>`${name} already has 5 registered ${part}.`,
+    codeNotApproved:code=>`Code ${code} is not one of the approved ones. The driver must be rejected.`,
+    confirmReject:"CONFIRM & REJECT DRIVER",
+    class:"Class",chooseClass:"Select class...",session:"Session",checkin:"Check-in",group:"Group",
+    scanned:"scanned",rejected:"rejected",missing:"missing",
+    scannedLabel:"✓ Scanned",rejectedLabel:"⚠ Rejected",missingLabel:"Missing",
+    noDriversFound:"No drivers found for this selection.",
+    searchDriver:"Search driver (name or license)",search:"Search...",noneFound:"None found",
+    nothingScannedYet:"Nothing scanned yet",rejectedTag:"(REJECTED)",
+    unknownLicense:v=>`Unknown license number: "${v}"`,notRegistered:name=>`${name} is not registered for this race.`,
+    cameraTitle:"Scan with camera",cameraLicenseTitle:"Scan license barcode",
+    cameraPartTitle:part=>`Scan ${part}`,cameraHold:"Hold the barcode in front of the camera",cameraClose:"Close",
+    cameraLoadError:"Barcode scanning could not load (check your internet connection).",
+    cameraPermError:"Could not access the camera. Check that the browser has camera permission.",
+  },
+}[LANG];
 
 // Plays a short alarm tone via WebAudio (best-effort; browsers require a user gesture at some
 // point in the page before audio is allowed, which scanning already provides via button clicks).
@@ -220,6 +304,18 @@ function App(){
     })();
   },[session]);
 
+  // Auto-select whichever race is currently chosen in the main app (mirrored to localStorage there),
+  // so officials don't have to reselect it here. Only applied once on load — a manual change in the
+  // dropdown afterward is never overridden.
+  useEffect(()=>{
+    if(selEvId!=null||events.length===0)return;
+    try{
+      const stored=localStorage.getItem("gc_selected_race");
+      const num=stored?Number(stored):null;
+      if(num&&events.some(e=>e.id===num))setSelEvId(num);
+    }catch(e){}
+  },[events]);
+
   // Load + subscribe to equipment_scans for the selected event
   useEffect(()=>{
     if(!selEvId)return;
@@ -242,7 +338,7 @@ function App(){
     return {data,error};
   };
 
-  if(session===undefined||( session&&!loaded))return <div style={{padding:40,textAlign:"center",color:C.textMuted}}>Indlæser...</div>;
+  if(session===undefined||( session&&!loaded))return <div style={{padding:40,textAlign:"center",color:C.textMuted}}>{STR.loading}</div>;
   if(session===null)return <LoginGate/>;
 
   const me=users.find(u=>u.id===session.user.id);
@@ -250,7 +346,7 @@ function App(){
     return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <Card style={{maxWidth:360,textAlign:"center"}}>
         <div style={{fontWeight:900,fontSize:18,marginBottom:8}}><span style={{color:C.red}}>GRID</span>CONTROL</div>
-        <div style={{color:C.textMuted,fontSize:13}}>Udstyrsscanning er kun tilgængelig for officials og admin.</div>
+        <div style={{color:C.textMuted,fontSize:13}}>{STR.notOfficial}</div>
       </Card>
     </div>;
   }
@@ -263,18 +359,18 @@ function App(){
     <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontWeight:900,fontSize:16}}><span style={{color:C.red}}>GRID</span>CONTROL</span>
-        <span style={{color:C.textDim,fontSize:12}}>· Udstyrsscanning</span>
+        <span style={{color:C.textDim,fontSize:12}}>· {LANG==="en"?"Equipment scanning":"Udstyrsscanning"}</span>
       </div>
-      <a href="index.html" style={{color:C.textMuted,fontSize:12,textDecoration:"none"}}>← Til appen</a>
+      <a href="index.html" style={{color:C.textMuted,fontSize:12,textDecoration:"none"}}>{STR.backToApp}</a>
     </div>
 
     <div style={{padding:16,flex:1}}>
-      <Sel label="Løb" value={selEvId||""} onChange={v=>{setSelEvId(v?Number(v):null);}} options={[{value:"",label:"Vælg løb..."},...events.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(e=>({value:String(e.id),label:`${e.name} (${e.date})`}))]}/>
+      <Sel label={STR.race} value={selEvId||""} onChange={v=>{setSelEvId(v?Number(v):null);}} options={[{value:"",label:STR.chooseRace},...events.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(e=>({value:String(e.id),label:`${e.name} (${e.date})`}))]}/>
 
-      {ev&&notAssignedToThisEvent&&<div style={{color:C.orange,fontSize:13,padding:24,textAlign:"center",background:`${C.orange}11`,borderRadius:8,border:`1px solid ${C.orange}44`}}>Du er ikke tildelt udstyrsscanning til dette løb. Kontakt admin hvis det er en fejl.</div>}
+      {ev&&notAssignedToThisEvent&&<div style={{color:C.orange,fontSize:13,padding:24,textAlign:"center",background:`${C.orange}11`,borderRadius:8,border:`1px solid ${C.orange}44`}}>{STR.notAssigned}</div>}
       {ev&&!notAssignedToThisEvent&&<>
         <div style={{display:"flex",gap:8,marginBottom:16}}>
-          {[["scan","🔍 Scan"],["heat","🏁 Heat-oversigt"],["profile","👤 Kører-profil"]].map(([id,label])=>
+          {[["scan",STR.tabScan],["heat",STR.tabHeat],["profile",STR.tabProfile]].map(([id,label])=>
             <button key={id} onClick={()=>setMode(id)} style={{flex:1,background:mode===id?`${C.red}22`:C.surface2,border:`2px solid ${mode===id?C.red:C.border}`,borderRadius:8,padding:"8px 4px",cursor:"pointer",color:mode===id?C.red:C.textMuted,fontWeight:700,fontSize:12,fontFamily:"inherit"}}>{label}</button>
           )}
         </div>
@@ -282,7 +378,7 @@ function App(){
         {mode==="heat"&&<HeatOverview ev={ev} users={users} sessions={sessions} scans={scans}/>}
         {mode==="profile"&&<DriverProfile ev={ev} users={users} scans={scans}/>}
       </>}
-      {!ev&&<div style={{color:C.textDim,fontSize:13,padding:24,textAlign:"center"}}>Vælg et løb for at komme i gang.</div>}
+      {!ev&&<div style={{color:C.textDim,fontSize:13,padding:24,textAlign:"center"}}>{STR.choosePrompt}</div>}
     </div>
   </div>;
 }
@@ -291,8 +387,8 @@ function LoginGate(){
   return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <Card style={{maxWidth:360,textAlign:"center"}}>
       <div style={{fontWeight:900,fontSize:18,marginBottom:8}}><span style={{color:C.red}}>GRID</span>CONTROL</div>
-      <div style={{color:C.textMuted,fontSize:13,marginBottom:16}}>Du skal være logget ind i hovedappen for at bruge udstyrsscanning.</div>
-      <a href="index.html" style={{display:"inline-block"}}><Btn>Log ind i GridControl</Btn></a>
+      <div style={{color:C.textMuted,fontSize:13,marginBottom:16}}>{STR.loginRequired}</div>
+      <a href="index.html" style={{display:"inline-block"}}><Btn>{STR.loginBtn}</Btn></a>
     </Card>
   </div>;
 }
@@ -341,8 +437,8 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
   const handleLicenseScan=(val)=>{
     setErr("");
     const found=findDriver(val);
-    if(!found){setErr(`Ukendt licensnummer: "${val}"`);setCode("");return;}
-    if(found.notRegistered){setErr(`${found.user.name} er ikke tilmeldt dette løb.`);setCode("");return;}
+    if(!found){setErr(STR.unknownLicense(val));setCode("");return;}
+    if(found.notRegistered){setErr(STR.notRegistered(found.user.name));setCode("");return;}
     setDriver(found);
     setCode("");
   };
@@ -400,13 +496,13 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
 
   return <div>
     <Card>
-      <Sel label="Dit navn (til log)" value={byName} onChange={setByName} options={[{value:"",label:"Vælg..."},...scanningOfficialNames.map(n=>({value:n,label:n}))]}/>
-      <Sel label="Kontekst" value={sessionCtx} onChange={v=>{setSessionCtx(v);}} options={[{value:"checkin",label:"Indskrivning (start af løb)"},...sessions.map(s=>({value:s.name,label:s.name}))]}/>
+      <Sel label={STR.yourName} value={byName} onChange={setByName} options={[{value:"",label:STR.choose},...scanningOfficialNames.map(n=>({value:n,label:n}))]}/>
+      <Sel label={STR.context} value={sessionCtx} onChange={v=>{setSessionCtx(v);}} options={[{value:"checkin",label:STR.checkinLong},...sessions.map(s=>({value:s.name,label:s.name}))]}/>
     </Card>
 
     {!driver&&<Card>
-      <div style={{color:C.textMuted,fontSize:12,marginBottom:8}}>Scan kørerens licens-stregkode for at starte</div>
-      <Input inputRef={inputRef} label="Licensnummer" value={code} onChange={setCode} onKeyDown={onKeyDown(handleLicenseScan)} placeholder="Scan eller indtast licens..." autoFocus onCamera={()=>setCameraFor("license")}/>
+      <div style={{color:C.textMuted,fontSize:12,marginBottom:8}}>{STR.scanLicensePrompt}</div>
+      <Input inputRef={inputRef} label={STR.licenseNumber} value={code} onChange={setCode} onKeyDown={onKeyDown(handleLicenseScan)} placeholder={STR.scanOrEnterLicense} autoFocus onCamera={()=>setCameraFor("license")}/>
       {err&&<div style={{color:C.red,fontSize:12,marginTop:4}}>{err}</div>}
     </Card>}
 
@@ -415,9 +511,9 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
             <div style={{fontWeight:700,fontSize:16}}>{driver.name}</div>
-            <div style={{color:C.textMuted,fontSize:12}}>#{driver.kartNumber||"?"} · {driver._regClass} · Licens {driver.license}</div>
+            <div style={{color:C.textMuted,fontSize:12}}>#{driver.kartNumber||"?"} · {driver._regClass} · {LANG==="en"?"License":"Licens"} {driver.license}</div>
           </div>
-          <Btn small variant="ghost" onClick={()=>{setDriver(null);setActivePart(null);}}>Skift kører</Btn>
+          <Btn small variant="ghost" onClick={()=>{setDriver(null);setActivePart(null);}}>{STR.switchDriver}</Btn>
         </div>
       </Card>
 
@@ -427,25 +523,25 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
           const limit=part==="slick"||part==="wet"?5:null;
           return <Card key={part} onClick={()=>setActivePart(part)} style={{cursor:"pointer",borderLeft:`3px solid ${activePart===part?C.red:C.border}`,marginBottom:0}}>
             <div style={{fontSize:20,marginBottom:4}}>{PART_ICONS[part]}</div>
-            <div style={{fontWeight:700,fontSize:13}}>{PART_LABELS[part]}</div>
-            <div style={{color:C.textMuted,fontSize:11}}>{known.length}{limit?`/${limit}`:""} registreret</div>
+            <div style={{fontWeight:700,fontSize:13}}>{PARTS[part]}</div>
+            <div style={{color:C.textMuted,fontSize:11}}>{known.length}{limit?`/${limit}`:""} {STR.registered}</div>
           </Card>;
         })}
       </div>
 
       {activePart&&<Card style={{borderLeft:`3px solid ${C.red}`}}>
-        <div style={{color:C.text,fontWeight:700,marginBottom:8}}>Scan {PART_LABELS[activePart].toLowerCase()}</div>
-        <Input inputRef={inputRef} value={code} onChange={setCode} onKeyDown={onKeyDown(v=>handlePartScan(activePart,v))} placeholder="Scan eller indtast stregkode..." autoFocus onCamera={()=>setCameraFor("part")}/>
+        <div style={{color:C.text,fontWeight:700,marginBottom:8}}>{STR.scanPrefix} {PARTS[activePart].toLowerCase()}</div>
+        <Input inputRef={inputRef} value={code} onChange={setCode} onKeyDown={onKeyDown(v=>handlePartScan(activePart,v))} placeholder={STR.scanOrEnterBarcode} autoFocus onCamera={()=>setCameraFor("part")}/>
         <div style={{color:C.textDim,fontSize:11}}>
           {partBarcodes(driver.id,activePart).length>0
-            ?`Kendte koder: ${partBarcodes(driver.id,activePart).join(", ")}`
-            :"Ingen registreret endnu"}
+            ?`${STR.knownCodes} ${partBarcodes(driver.id,activePart).join(", ")}`
+            :STR.noneYet}
         </div>
       </Card>}
     </>}
 
     {classProgress.length>0&&<Card>
-      <div style={{color:C.textMuted,fontSize:11,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Scannet ind pr. klasse</div>
+      <div style={{color:C.textMuted,fontSize:11,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>{STR.classProgress}</div>
       {classProgress.map(({cls,scanned,total})=>{
         const pct=total?Math.min(100,Math.round(scanned/total*100)):0;
         const done=total>0&&scanned>=total;
@@ -462,7 +558,7 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
     </Card>}
 
     {cameraFor&&<CameraScanModal
-      title={cameraFor==="license"?"Scan licens-stregkode":`Scan ${PART_LABELS[activePart].toLowerCase()}`}
+      title={cameraFor==="license"?STR.cameraLicenseTitle:STR.cameraPartTitle(PARTS[activePart].toLowerCase())}
       onClose={()=>setCameraFor(null)}
       onResult={(text)=>{
         setCameraFor(null);
@@ -476,18 +572,18 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
       const existing=partBarcodes(driver.id,confirmPopup.part);
       return <div style={{position:"fixed",inset:0,background:"#000000cc",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
         <Card style={{maxWidth:400,borderLeft:`3px solid ${C.orange}`}}>
-          <div style={{fontWeight:700,fontSize:16,marginBottom:8,color:C.orange}}>{PART_ICONS[confirmPopup.part]} Nyt {PART_LABELS[confirmPopup.part].toLowerCase()} for {driver.name}</div>
-          <div style={{color:C.text,fontSize:13,marginBottom:10}}>Ny kode: <b>{confirmPopup.barcode}</b></div>
-          <div style={{color:C.textMuted,fontSize:11,letterSpacing:1,marginBottom:4,textTransform:"uppercase"}}>{existing.length>0?`Allerede registreret (${existing.length}${isTire?"/5":""})`:`Ingen registreret endnu`}</div>
+          <div style={{fontWeight:700,fontSize:16,marginBottom:8,color:C.orange}}>{PART_ICONS[confirmPopup.part]} {STR.newFor} {PARTS[confirmPopup.part].toLowerCase()} for {driver.name}</div>
+          <div style={{color:C.text,fontSize:13,marginBottom:10}}>{STR.newCode} <b>{confirmPopup.barcode}</b></div>
+          <div style={{color:C.textMuted,fontSize:11,letterSpacing:1,marginBottom:4,textTransform:"uppercase"}}>{existing.length>0?`${STR.alreadyRegistered} (${existing.length}${isTire?"/5":""})`:STR.noneYet}</div>
           {existing.length>0&&<div style={{background:C.surface2,borderRadius:6,padding:"8px 10px",marginBottom:12,fontSize:12,color:C.textMuted}}>{existing.map(code=><div key={code}>{code}</div>)}</div>}
           <div style={{color:C.textMuted,fontSize:12,marginBottom:16}}>
             {isTire
-              ?`Dette bliver dæk nr. ${confirmPopup.count+1} af 5. Bekræft at det skal tilføjes.`
-              :`Bekræft at denne ${PART_LABELS[confirmPopup.part].toLowerCase()} skal tilføjes til ${driver.name}s udstyr.`}
+              ?STR.tireConfirm(confirmPopup.count+1)
+              :STR.partConfirm(PARTS[confirmPopup.part].toLowerCase(),driver.name)}
           </div>
           <div style={{display:"flex",gap:8}}>
-            <Btn onClick={()=>confirmNewPart(true)} style={{flex:1}}>✓ Bekræft & tilføj</Btn>
-            <Btn variant="ghost" onClick={()=>confirmNewPart(false)} style={{flex:1}}>Annuller</Btn>
+            <Btn onClick={()=>confirmNewPart(true)} style={{flex:1}}>{STR.confirmAdd}</Btn>
+            <Btn variant="ghost" onClick={()=>confirmNewPart(false)} style={{flex:1}}>{STR.cancel}</Btn>
           </div>
         </Card>
       </div>;
@@ -496,10 +592,10 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
     {alarm&&<div style={{position:"fixed",inset:0,background:C.red,display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:20}}>
       <div style={{textAlign:"center",maxWidth:420}}>
         <div style={{fontSize:60,marginBottom:12}}>⚠️</div>
-        <div style={{fontWeight:900,fontSize:26,color:"#fff",marginBottom:12,fontFamily:"'Barlow Condensed',sans-serif"}}>FOR MANGE {PART_LABELS[alarm.part].toUpperCase()}</div>
-        <div style={{color:"#fff",fontSize:15,marginBottom:6}}>{driver.name} har allerede 5 registrerede {PART_LABELS[alarm.part].toLowerCase()}.</div>
-        <div style={{color:"#fff",fontSize:13,marginBottom:24,opacity:0.9}}>Kode <b>{alarm.barcode}</b> er ikke en del af de godkendte. Køreren skal afvises.</div>
-        <button onClick={acknowledgeAlarm} style={{background:"#fff",color:C.red,border:"none",borderRadius:8,padding:"14px 28px",fontSize:16,fontWeight:900,cursor:"pointer",fontFamily:"inherit"}}>BEKRÆFT & AFVIS KØRER</button>
+        <div style={{fontWeight:900,fontSize:26,color:"#fff",marginBottom:12,fontFamily:"'Barlow Condensed',sans-serif"}}>{STR.tooMany} {PARTS[alarm.part].toUpperCase()}</div>
+        <div style={{color:"#fff",fontSize:15,marginBottom:6}}>{STR.alreadyHas5(driver.name,PARTS[alarm.part].toLowerCase())}</div>
+        <div style={{color:"#fff",fontSize:13,marginBottom:24,opacity:0.9}}>{STR.codeNotApproved(alarm.barcode)}</div>
+        <button onClick={acknowledgeAlarm} style={{background:"#fff",color:C.red,border:"none",borderRadius:8,padding:"14px 28px",fontSize:16,fontWeight:900,cursor:"pointer",fontFamily:"inherit"}}>{STR.confirmReject}</button>
       </div>
     </div>}
   </div>;
@@ -525,32 +621,32 @@ function HeatOverview({ev,users,sessions,scans}){
 
   return <div>
     <Card>
-      <Sel label="Klasse" value={selClass} onChange={v=>{setSelClass(v);setSelGroups([]);}} options={[{value:"",label:"Vælg klasse..."},...classes.map(c=>({value:c,label:c}))]}/>
-      <Sel label="Session" value={selSession} onChange={v=>{setSelSession(v);setSelGroups([]);}} options={[{value:"checkin",label:"Indskrivning"},...sessions.map(s=>({value:s.name,label:s.name}))]}/>
+      <Sel label={STR.class} value={selClass} onChange={v=>{setSelClass(v);setSelGroups([]);}} options={[{value:"",label:STR.chooseClass},...classes.map(c=>({value:c,label:c}))]}/>
+      <Sel label={STR.session} value={selSession} onChange={v=>{setSelSession(v);setSelGroups([]);}} options={[{value:"checkin",label:STR.checkin},...sessions.map(s=>({value:s.name,label:s.name}))]}/>
       {groupLetters.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
-        {groupLetters.map(g=>{const on=selGroups.includes(g);return <button key={g} onClick={()=>toggleGroup(g)} style={{background:on?C.cyan:C.surface2,color:on?"#000":C.textMuted,border:`1px solid ${on?C.cyan:C.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{on?"✓ ":""}Gruppe {g}</button>;})}
+        {groupLetters.map(g=>{const on=selGroups.includes(g);return <button key={g} onClick={()=>toggleGroup(g)} style={{background:on?C.cyan:C.surface2,color:on?"#000":C.textMuted,border:`1px solid ${on?C.cyan:C.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{on?"✓ ":""}{STR.group} {g}</button>;})}
       </div>}
     </Card>
 
     {selClass&&<>
       <div style={{display:"flex",gap:10,marginBottom:10}}>
-        <Badge color={C.green}>{drivers.filter(d=>statusFor(d.id)==="scanned").length} scannet</Badge>
-        <Badge color={C.red}>{drivers.filter(d=>statusFor(d.id)==="rejected").length} afvist</Badge>
-        <Badge color={C.textDim}>{drivers.filter(d=>statusFor(d.id)==="none").length} mangler</Badge>
+        <Badge color={C.green}>{drivers.filter(d=>statusFor(d.id)==="scanned").length} {STR.scanned}</Badge>
+        <Badge color={C.red}>{drivers.filter(d=>statusFor(d.id)==="rejected").length} {STR.rejected}</Badge>
+        <Badge color={C.textDim}>{drivers.filter(d=>statusFor(d.id)==="none").length} {STR.missing}</Badge>
       </div>
       {drivers.map(d=>{
         const st=statusFor(d.id);
         const color={scanned:C.green,rejected:C.red,none:C.textDim}[st];
-        const label={scanned:"✓ Scannet",rejected:"⚠ Afvist",none:"Mangler"}[st];
+        const label={scanned:STR.scannedLabel,rejected:STR.rejectedLabel,none:STR.missingLabel}[st];
         return <Card key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderLeft:`3px solid ${color}`}}>
           <div>
             <div style={{fontWeight:700,fontSize:14}}>#{d.kartNumber||"?"} {d.name}</div>
-            <div style={{color:C.textMuted,fontSize:11}}>{d._group?`Gruppe ${d._group}`:""}</div>
+            <div style={{color:C.textMuted,fontSize:11}}>{d._group?`${STR.group} ${d._group}`:""}</div>
           </div>
           <Badge color={color}>{label}</Badge>
         </Card>;
       })}
-      {drivers.length===0&&<div style={{color:C.textDim,fontSize:12,padding:16,textAlign:"center"}}>Ingen kørere fundet for dette udvalg.</div>}
+      {drivers.length===0&&<div style={{color:C.textDim,fontSize:12,padding:16,textAlign:"center"}}>{STR.noDriversFound}</div>}
     </>}
   </div>;
 }
@@ -565,13 +661,13 @@ function DriverProfile({ev,users,scans}){
   const driverScans=selId?scans.filter(s=>s.event_id===ev.id&&s.driver_id===selId).slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)):[];
 
   if(!driver)return <Card>
-    <Input label="Søg kører (navn eller licens)" value={search} onChange={setSearch} placeholder="Søg..."/>
+    <Input label={STR.searchDriver} value={search} onChange={setSearch} placeholder={STR.search}/>
     <div style={{maxHeight:400,overflowY:"auto"}}>
       {candidates.slice(0,50).map(u=><div key={u.id} onClick={()=>setSelId(u.id)} style={{padding:"8px 4px",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
         <div style={{fontWeight:600,fontSize:13}}>#{u.kartNumber||"?"} {u.name}</div>
-        <div style={{color:C.textDim,fontSize:11}}>{u.class} · Licens {u.license}</div>
+        <div style={{color:C.textDim,fontSize:11}}>{u.class} · {LANG==="en"?"License":"Licens"} {u.license}</div>
       </div>)}
-      {candidates.length===0&&<div style={{color:C.textDim,fontSize:12,padding:16,textAlign:"center"}}>Ingen fundet</div>}
+      {candidates.length===0&&<div style={{color:C.textDim,fontSize:12,padding:16,textAlign:"center"}}>{STR.noneFound}</div>}
     </div>
   </Card>;
 
@@ -580,9 +676,9 @@ function DriverProfile({ev,users,scans}){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
           <div style={{fontWeight:700,fontSize:16}}>{driver.name}</div>
-          <div style={{color:C.textMuted,fontSize:12}}>#{driver.kartNumber||"?"} · {driver.class} · Licens {driver.license}</div>
+          <div style={{color:C.textMuted,fontSize:12}}>#{driver.kartNumber||"?"} · {driver.class} · {LANG==="en"?"License":"Licens"} {driver.license}</div>
         </div>
-        <Btn small variant="ghost" onClick={()=>setSelId(null)}>Skift kører</Btn>
+        <Btn small variant="ghost" onClick={()=>setSelId(null)}>{STR.switchDriver}</Btn>
       </div>
     </Card>
 
@@ -590,11 +686,11 @@ function DriverProfile({ev,users,scans}){
       const rows=driverScans.filter(s=>s.part_type===part);
       const known=[...new Set(rows.filter(r=>r.status!=="violation").map(r=>r.barcode))];
       return <Card key={part}>
-        <div style={{fontWeight:700,fontSize:13,marginBottom:6}}>{PART_ICONS[part]} {PART_LABELS[part]} ({known.length}{part==="slick"||part==="wet"?"/5":""})</div>
-        {rows.length===0&&<div style={{color:C.textDim,fontSize:12}}>Intet scannet endnu</div>}
+        <div style={{fontWeight:700,fontSize:13,marginBottom:6}}>{PART_ICONS[part]} {PARTS[part]} ({known.length}{part==="slick"||part==="wet"?"/5":""})</div>
+        {rows.length===0&&<div style={{color:C.textDim,fontSize:12}}>{STR.nothingScannedYet}</div>}
         {rows.map(r=><div key={r.id} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
-          <span style={{color:r.status==="violation"?C.red:C.text}}>{r.barcode}{r.status==="violation"?" (AFVIST)":""}{r.session?` · ${r.session}`:" · Indskrivning"}</span>
-          <span style={{color:C.textDim}}>{new Date(r.created_at).toLocaleString("da-DK")}</span>
+          <span style={{color:r.status==="violation"?C.red:C.text}}>{r.barcode}{r.status==="violation"?` ${STR.rejectedTag}`:""}{r.session?` · ${r.session}`:` · ${STR.checkin}`}</span>
+          <span style={{color:C.textDim}}>{new Date(r.created_at).toLocaleString(LANG==="en"?"en-GB":"da-DK")}</span>
         </div>)}
       </Card>;
     })}
