@@ -330,11 +330,37 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
 
   const onKeyDown=(handler)=>e=>{if(e.key==="Enter"){handler(e.target.value);}};
 
+  // Active classes for this event with "scanned in" progress for the currently selected context
+  // (checkin, or a specific heat/session) — a driver counts as scanned once they have at least
+  // one equipment_scans row (any part) in that context.
+  const classProgress=[...new Set((ev.registrations||[]).map(r=>r.class))].filter(Boolean).sort((a,b)=>a.localeCompare(b,"da")).map(cls=>{
+    const total=(ev.registrations||[]).filter(r=>r.class===cls).length;
+    const scannedIds=new Set(scans.filter(s=>s.event_id===ev.id&&s.class===cls&&(sessionCtx==="checkin"?!s.session:s.session===sessionCtx)).map(s=>s.driver_id));
+    return {cls,scanned:scannedIds.size,total};
+  });
+
   return <div>
     <Card>
       <Sel label="Dit navn (til log)" value={byName} onChange={setByName} options={[{value:"",label:"Vælg..."},...scanningOfficialNames.map(n=>({value:n,label:n}))]}/>
       <Sel label="Kontekst" value={sessionCtx} onChange={v=>{setSessionCtx(v);}} options={[{value:"checkin",label:"Indskrivning (start af løb)"},...sessions.map(s=>({value:s.name,label:s.name}))]}/>
     </Card>
+
+    {classProgress.length>0&&<Card>
+      <div style={{color:C.textMuted,fontSize:11,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Scannet ind pr. klasse</div>
+      {classProgress.map(({cls,scanned,total})=>{
+        const pct=total?Math.min(100,Math.round(scanned/total*100)):0;
+        const done=total>0&&scanned>=total;
+        return <div key={cls} style={{marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}>
+            <span style={{color:C.text}}>{cls}</span>
+            <span style={{color:done?C.green:C.textMuted,fontWeight:700}}>{scanned}/{total}</span>
+          </div>
+          <div style={{height:4,background:C.surface2,borderRadius:2,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${pct}%`,background:done?C.green:C.red,borderRadius:2}}/>
+          </div>
+        </div>;
+      })}
+    </Card>}
 
     {!driver&&<Card>
       <div style={{color:C.textMuted,fontSize:12,marginBottom:8}}>Scan kørerens licens-stregkode for at starte</div>
