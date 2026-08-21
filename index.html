@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.156";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -5966,6 +5966,24 @@ function AdminRaceReport({state,dispatch,seriesScope}){
         doc.setFont(undefined,"normal");doc.setFontSize(10);
       };
 
+      // Series logo, top-right of page 1, if this race belongs to a series that has one uploaded.
+      const series=state.raceSeries.find(s=>s.id===ev.seriesId);
+      if(series?.logo){
+        try{
+          const dims=await new Promise((resolve,reject)=>{
+            const img=new Image();
+            img.onload=()=>resolve({width:img.naturalWidth,height:img.naturalHeight});
+            img.onerror=reject;
+            img.src=series.logo;
+          });
+          const maxW=40,maxH=20;
+          let logoW=maxW,logoH=maxW*(dims.height/dims.width);
+          if(logoH>maxH){logoH=maxH;logoW=maxH*(dims.width/dims.height);}
+          const fmt=/^data:image\/png/i.test(series.logo)?"PNG":"JPEG";
+          doc.addImage(series.logo,fmt,pageW-margin-logoW,margin,logoW,logoH);
+        }catch(e){console.error("Could not add series logo to report",e);}
+      }
+
       // Page 1: cover + officials + signature line. All selected report content starts on page 2.
       doc.setFont(undefined,"bold");doc.setFontSize(20);
       doc.text(t.admReportPdfTitle,margin,y);y+=9;
@@ -6004,9 +6022,16 @@ function AdminRaceReport({state,dispatch,seriesScope}){
       doc.text(t.admReportSignatureLabel,margin,sigY+5);
       doc.text(t.admReportDateLabel,margin+95,sigY+5);
 
-      // Everything selected below always starts fresh on page 2.
-      doc.addPage();y=margin;
+      // Everything selected below always starts fresh on page 2, and each section below gets its
+      // own page too — startSection() adds a new page before every section except the first one,
+      // since that's already starting fresh right after the cover page. If no text section is
+      // selected at all, skip creating an otherwise-empty page 2 here — any merged PDFs appended
+      // below will then correctly become page 2 themselves instead of leaving a blank page first.
+      const hasTextSection=opts.classCounts||opts.competitors||opts.penalties;
+      if(hasTextSection){doc.addPage();y=margin;}
       doc.setDrawColor(220);doc.setFontSize(10);doc.setTextColor(0);
+      let firstSection=true;
+      const startSection=()=>{if(!firstSection){doc.addPage();y=margin;}firstSection=false;};
 
       // Shared by both the class-count summary and the full competitor list below.
       const byClass={};
@@ -6019,6 +6044,7 @@ function AdminRaceReport({state,dispatch,seriesScope}){
       const classNames=sortClassesByAge(Object.keys(byClass),state.classRules);
 
       if(opts.classCounts){
+        startSection();
         sectionHeader(t.admReportClassCountsHdr);
         if(!classNames.length){doc.text(t.admReportNoCompetitors,margin,y);y+=6;}
         let totalCount=0;
@@ -6043,6 +6069,7 @@ function AdminRaceReport({state,dispatch,seriesScope}){
       }
 
       if(opts.competitors){
+        startSection();
         sectionHeader(t.admReportCompetitorsHdr);
         if(!classNames.length){doc.text(t.admReportNoCompetitors,margin,y);y+=6;}
         classNames.forEach(cls=>{
@@ -6060,6 +6087,7 @@ function AdminRaceReport({state,dispatch,seriesScope}){
       }
 
       if(opts.penalties){
+        startSection();
         sectionHeader(t.admReportPenaltiesHdr);
         if(!approvedPenalties.length){doc.text(t.admReportNoPenalties,margin,y);y+=6;}
         approvedPenalties.forEach(p=>{
