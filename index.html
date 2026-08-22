@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.162";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -1554,8 +1554,13 @@ function KartRegisterScreen({state,dispatch}){
   const eligible=ageEligible.filter(c=>state.classRules[c]?.useKartRegister!==false);
   const noneUseRegister=ageEligible.length>0&&eligible.length===0;
   // A driver may need separate numbers in more than one register (e.g. main + a series with its
-  // own register), so tabs are per (register, class) "slot" rather than just per class.
+  // own register), so tabs are per (register, class) "slot" rather than just per class. Grouped
+  // by register — main first, then each series register — so each register gets its own row,
+  // with classes inside a row kept in age order (the order they were built in).
   const slots=kartSlotsForClasses(state,eligible);
+  const registerRowOrder=["main",...state.raceSeries.filter(s=>s.ownKartRegister).map(s=>`series_${s.id}`)];
+  const slotRows=registerRowOrder.map(rid=>({registerId:rid,slots:slots.filter(s=>s.registerId===rid)})).filter(r=>r.slots.length>0);
+  const registerRowLabel=(rid)=>rid==="main"?t.admMainRegister:(state.raceSeries.find(s=>`series_${s.id}`===rid)?.name||rid);
   const [slotKey,setSlotKey]=useState(slots[0]?slots[0].registerId+"|"+slots[0].className:"");
   const activeSlot=slots.find(s=>s.registerId+"|"+s.className===slotKey)||slots[0]||null;
   const activeCls=activeSlot?.className||"";
@@ -1593,9 +1598,12 @@ function KartRegisterScreen({state,dispatch}){
             :(isForChild?`Udfyld ${u.name}s fødselsdato under "Mine kørere" for at se klasser.`:"Udfyld din fødselsdato under Profil for at se dine klasser.")}
       </div>
       :<div>
-        <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:4}}>
-          {slots.map(s=>{const key=s.registerId+"|"+s.className;const active=slotKey===key||(!slotKey&&s===slots[0]);return <button key={key} onClick={()=>{setSlotKey(key);setPicked(null);}} style={{background:active?state.classRules[s.className]?.color||C.red:C.surface2,color:active?"#fff":C.textMuted,border:`1px solid ${active?state.classRules[s.className]?.color||C.red:C.border}`,borderRadius:20,padding:"5px 14px",fontSize:12,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit",fontWeight:active?700:400}}>{s.label}</button>;})}
-        </div>
+        {slotRows.map(row=><div key={row.registerId} style={{marginBottom:10}}>
+          {slotRows.length>1&&<div style={{color:C.textDim,fontSize:10,letterSpacing:1,marginBottom:4,textTransform:"uppercase"}}>{registerRowLabel(row.registerId)}</div>}
+          <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+            {row.slots.map(s=>{const key=s.registerId+"|"+s.className;const active=slotKey===key||(!slotKey&&s===slots[0]);return <button key={key} onClick={()=>{setSlotKey(key);setPicked(null);}} style={{background:active?state.classRules[s.className]?.color||C.red:C.surface2,color:active?"#fff":C.textMuted,border:`1px solid ${active?state.classRules[s.className]?.color||C.red:C.border}`,borderRadius:20,padding:"5px 14px",fontSize:12,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit",fontWeight:active?700:400}}>{s.className}</button>;})}
+          </div>
+        </div>)}
         {myNum&&<div style={{background:`${C.green}11`,border:`1px solid ${C.green}44`,borderRadius:8,padding:10,marginBottom:10}}>
           <div style={{color:C.green,fontSize:13,fontWeight:700}}>{isForChild?u.name+"s":"Dit"} nummer i {activeSlot.label}: #{myNum}</div>
           {(()=>{
