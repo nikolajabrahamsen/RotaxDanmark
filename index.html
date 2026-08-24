@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.167";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -864,6 +864,12 @@ function reducer(state,action){
         registrations:ev.registrations!==undefined?ev.registrations:(curEventsById[ev.id]?.registrations||[]),
       }));
       if(action.payload.notifications===undefined)merged.notifications=state.notifications||[];
+      // kartRegisters lives in its own table now too (see stripLocal) — same rule as
+      // penalties/registrations/notifications above: only replace it if this HYDRATE explicitly
+      // attached it (see the initial-load fetch / _RT_KART_REGISTER_UPSERT), otherwise keep
+      // whatever's already loaded rather than wiping it back to empty on every unrelated
+      // app_state update (e.g. the focus-refetch below, which only re-reads the app_state row).
+      merged.kartRegisters=action.payload.kartRegisters!==undefined?action.payload.kartRegisters:(state.kartRegisters||initialState.kartRegisters);
       // Migrate legacy single-register data (old field: kartRegister) into the new multi-register
       // shape (kartRegisters.main) the first time this is seen — only when the payload predates
       // the kartRegisters field but still has the old one.
@@ -1167,6 +1173,11 @@ function reducer(state,action){
     case "_RT_IMPORTED_USER_DELETE":{
       const imported=(state.importedUsers||[]).filter(u=>u.id!==action.id);
       return{...state,importedUsers:imported,users:mergeUsers(state.authProfiles,imported)};
+    }
+    // Realtime update for one kart register (see kart_registers_sync channel below) — another
+    // admin/device changed it, so just replace our local copy of that one register.
+    case "_RT_KART_REGISTER_UPSERT":{
+      return{...state,kartRegisters:{...(state.kartRegisters||{}),[action.registerId]:action.data}};
     }
     case "UPDATE_OFFICIAL_EVENTS":{
       const profiles=(state.authProfiles||[]).map(u=>u.id===action.userId?{...u,approvedEvents:action.events}:u);
@@ -7827,7 +7838,11 @@ function SyncBadge({status}){
 //   or many drivers/parents registering or creating child profiles at the same time) can never silently
 //   overwrite each other's submissions the way a "whole state" save could.
 const stripLocal=(s)=>{
-  const {currentUser,lang,users,authProfiles,uiPrefs,notifications,importedUsers,...rest}=s;
+  // kartRegisters now lives in its own table (kart_registers), written independently on each
+  // action — see wrappedDispatch — exactly like penalties/registrations/notifications/imported_users
+  // below. Excluding it here means a kart-number change never triggers (or waits behind) a save of
+  // the whole app_state blob, and vice versa.
+  const {currentUser,lang,users,authProfiles,uiPrefs,notifications,importedUsers,kartRegisters,...rest}=s;
   return {...rest,events:(rest.events||[]).map(({penalties,readySignals,registrations,...ev})=>ev)};
 };
 
@@ -7895,7 +7910,7 @@ function App(){
   // 1) Fetch saved state + profiles on startup, restore login if any
   useEffect(()=>{
     if(!sb){return;}
-    let channel,profChannel,penaltyChannel,signalChannel,notifChannel,regChannel,importedChannel;
+    let channel,profChannel,penaltyChannel,signalChannel,notifChannel,regChannel,importedChannel,kartRegChannel;
     (async()=>{
       // Fetch Auth profiles
       const profiles=await loadProfiles();
@@ -7907,8 +7922,8 @@ function App(){
       // very next state change.
       let loadSucceeded=false;
 
-      // Fetch app state + the dedicated penalties/ready_signals/registrations/notifications/imported_users
-      // tables in parallel (these live separately from the app_state blob – see stripLocal for why).
+      // Fetch app state + the dedicated penalties/ready_signals/registrations/notifications/imported_users/
+      // kart_registers tables in parallel (these live separately from the app_state blob – see stripLocal for why).
       const [
         {data,error},
         {data:penaltyRows,error:penaltyErr},
@@ -7916,6 +7931,7 @@ function App(){
         {data:notifRows,error:notifErr},
         {data:regRows,error:regErr},
         {data:importedRows,error:importedErr},
+        {data:kartRegRows,error:kartRegErr},
       ]=await Promise.all([
         sb.from("app_state").select("data").eq("id",1).maybeSingle(),
         sb.from("penalties").select("*"),
@@ -7923,6 +7939,7 @@ function App(){
         sb.from("notifications").select("*").order("id",{ascending:false}).limit(150),
         sb.from("registrations").select("*"),
         sb.from("imported_users").select("*"),
+        sb.from("kart_registers").select("*"),
       ]);
       // Each of these tables' own fetch can fail independently of the main app_state fetch (Supabase
       // doesn't throw on query errors, it just returns {data:null,error:{...}}). Silently treating a
@@ -7936,6 +7953,7 @@ function App(){
       if(notifErr)console.error("Supabase load (notifications):",notifErr);
       if(regErr)console.error("Supabase load (registrations):",regErr);
       if(importedErr)console.error("Supabase load (imported_users):",importedErr);
+      if(kartRegErr)console.error("Supabase load (kart_registers):",kartRegErr);
       if(error){console.error("Supabase load:",error);setSync("error");}
       else if(data&&data.data){
         const payload={...data.data,
@@ -7943,10 +7961,24 @@ function App(){
         };
         if(!notifErr)payload.notifications=(notifRows||[]).map(rowToNotification);
         if(!importedErr)payload.importedUsers=(importedRows||[]).map(rowToImportedUser);
+        if(!kartRegErr){
+          if((kartRegRows||[]).length){
+            const kr={};(kartRegRows||[]).forEach(row=>{kr[row.register_id]=row.data;});
+            payload.kartRegisters=kr;
+          }else if(data.data.kartRegisters&&Object.keys(data.data.kartRegisters).length){
+            // One-time migration: the kart_registers table exists but is empty, while the old
+            // app_state blob still has register data from before this table existed. Seed the
+            // table from it so future changes stop going through the big blob entirely.
+            payload.kartRegisters=data.data.kartRegisters;
+            Object.entries(data.data.kartRegisters).forEach(([registerId,regData])=>{
+              sb.from("kart_registers").upsert({register_id:registerId,data:regData,client:CLIENT_ID,updated_at:new Date().toISOString()},{onConflict:"register_id"}).then(({error})=>{if(error)console.error("Supabase kart_registers migration:",error);});
+            });
+          }
+        }
         skipNextSave.current=true;
         lastSaved.current=JSON.stringify(stripLocal({...initialState,...data.data}));
         dispatch({type:"HYDRATE",payload});
-        setSync(importedErr||penaltyErr||signalErr||notifErr||regErr?"error":"synced");
+        setSync(importedErr||penaltyErr||signalErr||notifErr||regErr||kartRegErr?"error":"synced");
         loadSucceeded=true;
       }else{
         // CRITICAL: this branch is meant only for a genuinely brand-new database with no app_state
@@ -8083,8 +8115,19 @@ function App(){
           dispatch({type:"_RT_IMPORTED_USER_DELETE",id:payload.old.id});
         })
         .subscribe();
+
+      kartRegChannel=sb.channel("kart_registers_sync")
+        .on("postgres_changes",{event:"INSERT",schema:"public",table:"kart_registers"},payload=>{
+          if(payload.new?.client===CLIENT_ID)return;
+          dispatch({type:"_RT_KART_REGISTER_UPSERT",registerId:payload.new.register_id,data:payload.new.data});
+        })
+        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"kart_registers"},payload=>{
+          if(payload.new?.client===CLIENT_ID)return;
+          dispatch({type:"_RT_KART_REGISTER_UPSERT",registerId:payload.new.register_id,data:payload.new.data});
+        })
+        .subscribe();
     })();
-    return()=>{if(channel)sb.removeChannel(channel);if(profChannel)sb.removeChannel(profChannel);if(penaltyChannel)sb.removeChannel(penaltyChannel);if(signalChannel)sb.removeChannel(signalChannel);if(notifChannel)sb.removeChannel(notifChannel);if(regChannel)sb.removeChannel(regChannel);if(importedChannel)sb.removeChannel(importedChannel);};
+    return()=>{if(channel)sb.removeChannel(channel);if(profChannel)sb.removeChannel(profChannel);if(penaltyChannel)sb.removeChannel(penaltyChannel);if(signalChannel)sb.removeChannel(signalChannel);if(notifChannel)sb.removeChannel(notifChannel);if(regChannel)sb.removeChannel(regChannel);if(importedChannel)sb.removeChannel(importedChannel);if(kartRegChannel)sb.removeChannel(kartRegChannel);};
   },[]);
 
   // Refetch data when the window regains focus / becomes visible again (catches any missed realtime updates)
@@ -8271,6 +8314,22 @@ function App(){
       const removedIds=(stateRef.current.importedUsers||[]).filter(u=>u.source==="csv-import").map(u=>u.id);
       sb.from("imported_users").delete().eq("source","csv-import").then(({error})=>{if(error)console.error("Supabase imported_users csv delete:",error);});
       if(removedIds.length)sb.from("registrations").delete().in("user_id",removedIds).then(({error})=>{if(error)console.error("Supabase registrations csv delete:",error);});
+    }
+
+    // ── Kart registers: each register (main, or a series' own) is one row, written straight to its
+    // own table independent of the app_state blob — so a kart-number change never has to wait
+    // behind (or drag along) an unrelated save, and vice versa. We compute the resulting register
+    // value ourselves by running the same reducer against the pre-dispatch state, rather than
+    // waiting for React's own re-render, since stateRef.current isn't updated until after this
+    // function returns. ──
+    const KART_REGISTER_ACTIONS=new Set(["SET_KART_RANGE","SET_KART_DATES","CLAIM_KART","RELEASE_KART","RENEW_KART","LOCK_KART","RUN_ANNUAL_RELEASE","IMPORT_KART_NUMBERS","SET_KART_GROUPS"]);
+    if(KART_REGISTER_ACTIONS.has(action.type)){
+      const rid=action.registerId||"main";
+      const nextState=reducer(stateRef.current,action);
+      const regData=nextState.kartRegisters?.[rid];
+      if(regData){
+        sb.from("kart_registers").upsert({register_id:rid,data:regData,client:CLIENT_ID,updated_at:new Date().toISOString()},{onConflict:"register_id"}).then(({error})=>{if(error)console.error("Supabase kart_registers upsert:",error);});
+      }
     }
 
     // ── Penalties / ready signals / notifications: written straight to their own tables, as
