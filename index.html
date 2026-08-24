@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.164";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -8093,6 +8093,26 @@ function App(){
     const t=setTimeout(runSave,800);
     return()=>clearTimeout(t);
   },[state]);
+
+  // Guards against exactly the "click Release/Lock, then immediately refresh" scenario: the local
+  // UI updates instantly (optimistic), but the actual write is debounced by 800ms + network time.
+  // A refresh/close before that lands would silently lose the change, since app_state changes only
+  // ever reach the server through this debounced save (unlike penalties/registrations/etc., which
+  // write to their own tables immediately). Warn the browser's native "unsaved changes" prompt
+  // whenever local state hasn't caught up with the last confirmed save yet.
+  useEffect(()=>{
+    if(!sb)return;
+    const handler=(e)=>{
+      if(!loaded.current)return;
+      const rest=stripLocal(stateRef.current);
+      if(JSON.stringify(rest)!==lastSaved.current){
+        e.preventDefault();
+        e.returnValue="";
+      }
+    };
+    window.addEventListener("beforeunload",handler);
+    return()=>window.removeEventListener("beforeunload",handler);
+  },[]);
 
   // Wrapped dispatch: profile changes are also written to the profiles table
   const wrappedDispatch=React.useCallback((action)=>{
