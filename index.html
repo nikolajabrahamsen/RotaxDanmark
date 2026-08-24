@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.166";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -1615,6 +1615,9 @@ function KartRegisterScreen({state,dispatch}){
     if(myNum)dispatch({type:"RELEASE_KART",registerId:activeSlot.registerId,className:activeCls,number:myNum});
     dispatch({type:"CLAIM_KART",registerId:activeSlot.registerId,className:activeCls,number:num,ownerId:u.id,ownerName:u.name,ownerLicense:u.license||""});
     setPicked(null);
+    // Nudge an immediate save instead of waiting out the debounce — drivers often close the page
+    // right after picking a number, and this is a single discrete action rather than a rapid burst.
+    setTimeout(()=>window.__gcForceSave?.(),50);
   };
 
   return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
@@ -1651,7 +1654,7 @@ function KartRegisterScreen({state,dispatch}){
             if(renewed)return <div style={{color:C.green,fontSize:11,marginTop:4}}>✓ Fornyet til næste sæson – bevares ved frigivelsen</div>;
             if(canRenew)return <div style={{marginTop:8}}>
               <div style={{color:C.textMuted,fontSize:11,marginBottom:6}}>Fornyelse er åben (indtil {reg.releaseDate}). Forny for at beholde #{myNum} i {activeSlot.label} næste sæson.</div>
-              <Btn small onClick={()=>dispatch({type:"RENEW_KART",registerId:activeSlot.registerId,className:activeCls,number:myNum,ownerId:u.id})}>Forny #{myNum}</Btn>
+              <Btn small onClick={()=>{dispatch({type:"RENEW_KART",registerId:activeSlot.registerId,className:activeCls,number:myNum,ownerId:u.id});setTimeout(()=>window.__gcForceSave?.(),50);}}>Forny #{myNum}</Btn>
             </div>;
             if(reg.renewOpenDate&&reg.releaseDate&&new Date().toISOString().slice(0,10)<reg.renewOpenDate)
               return <div style={{color:C.textDim,fontSize:11,marginTop:4}}>Fornyelse åbner {reg.renewOpenDate}</div>;
@@ -5937,11 +5940,18 @@ function AdminKartRegister({state,dispatch}){
   const classesInOtherGroups=new Set(groups.filter(g=>g.id!==editGroupId).flatMap(g=>g.classes||[]));
   const toggleGroupClass=(c)=>setGroupForm(f=>({...f,classes:f.classes.includes(c)?f.classes.filter(x=>x!==c):[...f.classes,c]}));
   const saveGroups=(next)=>dispatch({type:"SET_KART_GROUPS",registerId:activeRegisterId,groups:next});
+  // Nudges an immediate save right after a discrete, click-triggered kart-register change (as
+  // opposed to relying on the debounce, which is really meant for batching rapid typing) — see
+  // window.__gcForceSave in App() for why. The small delay lets React commit the state update
+  // (and the App-level stateRef mirror of it) before the save reads it.
+  const forceSaveSoon=()=>setTimeout(()=>window.__gcForceSave?.(),50);
+
   const submitGroup=()=>{
     if(!groupForm.name||groupForm.classes.length<2)return;
     if(editGroupId)saveGroups(groups.map(g=>g.id===editGroupId?{...g,name:groupForm.name,classes:groupForm.classes}:g));
     else saveGroups([...groups,{id:Date.now(),name:groupForm.name,classes:groupForm.classes}]);
     setGroupForm({name:"",classes:[]});setEditGroupId(null);
+    forceSaveSoon();
   };
   const startEditGroup=(g)=>{setEditGroupId(g.id);setGroupForm({name:g.name,classes:[...(g.classes||[])]});};
   const cancelEditGroup=()=>{setEditGroupId(null);setGroupForm({name:"",classes:[]});};
@@ -5949,6 +5959,7 @@ function AdminKartRegister({state,dispatch}){
     if(!window.confirm(t.admDeleteGroupConfirm))return;
     saveGroups(groups.filter(g=>g.id!==id));
     if(editGroupId===id)cancelEditGroup();
+    forceSaveSoon();
   };
   const activeGroup=groups.find(g=>(g.classes||[]).includes(activeCls));
 
@@ -5960,26 +5971,30 @@ function AdminKartRegister({state,dispatch}){
     if(!s||!e||s>e){setMsg(t.admInvalidRange);return;}
     dispatch({type:"SET_KART_RANGE",registerId:activeRegisterId,className:activeCls,start:s,end:e});
     setMsg(`${t.admRangeFor}${activeCls}: ${s}–${e}`);
+    forceSaveSoon();
   };
   const saveDates=()=>{
     dispatch({type:"SET_KART_DATES",registerId:activeRegisterId,releaseDate:relDate||"",renewOpenDate:renewDate||""});
     setMsg(t.admDatesSaved);
+    forceSaveSoon();
   };
 
-  const release=(num)=>{dispatch({type:"RELEASE_KART",registerId:activeRegisterId,className:activeCls,number:num});setSel(null);setLockNote("");};
-  const lockNumber=(num)=>{dispatch({type:"LOCK_KART",registerId:activeRegisterId,className:activeCls,number:num,note:lockNote});setSel(null);setLockNote("");};
+  const release=(num)=>{dispatch({type:"RELEASE_KART",registerId:activeRegisterId,className:activeCls,number:num});setSel(null);setLockNote("");forceSaveSoon();};
+  const lockNumber=(num)=>{dispatch({type:"LOCK_KART",registerId:activeRegisterId,className:activeCls,number:num,note:lockNote});setSel(null);setLockNote("");forceSaveSoon();};
   const reassign=(num)=>{
     if(!reassignId)return;
     const usr=state.users.find(x=>String(x.id)===String(reassignId));
     if(!usr)return;
     dispatch({type:"CLAIM_KART",registerId:activeRegisterId,className:activeCls,number:num,ownerId:usr.id,ownerName:usr.name,ownerLicense:usr.license||""});
     setReassignId("");setSel(null);setMsg(`#${num}${t.admAssignedTo}${usr.name}`);
+    forceSaveSoon();
   };
   const toggleRenew=(num,owner)=>{
     // admin can manually mark/unmark renewal
     if(owner.renewed)dispatch({type:"CLAIM_KART",registerId:activeRegisterId,className:activeCls,number:num,ownerId:owner.ownerId,ownerName:owner.ownerName,ownerLicense:owner.ownerLicense});
     else dispatch({type:"RENEW_KART",registerId:activeRegisterId,className:activeCls,number:num,ownerId:owner.ownerId});
     setSel(null);
+    forceSaveSoon();
   };
 
   const runAnnual=()=>{
@@ -5988,6 +6003,7 @@ function AdminKartRegister({state,dispatch}){
     if(!window.confirm(t.admAnnualReleaseConfirm.replace("COUNT",cnt).replace("RENEWED",renewed)))return;
     dispatch({type:"RUN_ANNUAL_RELEASE",registerId:activeRegisterId});
     setMsg(`${t.admAnnualReleaseRun}${cnt}${t.admReleasedKept.replace("RENEWED",renewed)}`);
+    forceSaveSoon();
   };
 
   // ── CSV import (ID number + kart number) ──
@@ -8131,9 +8147,24 @@ function App(){
     const rest=stripLocal(state);
     const json=JSON.stringify(rest);
     if(json===lastSaved.current)return;
-    const t=setTimeout(runSave,800);
+    const t=setTimeout(runSave,300);
     return()=>clearTimeout(t);
   },[state]);
+
+  // Exposes an immediate-save trigger for admin actions where waiting out the debounce is risky —
+  // a single discrete click (release/lock/assign a kart number, etc.) rather than a rapid burst of
+  // typing, so there's no batching benefit to waiting and the person is likely to navigate away
+  // right after. This is the more reliable half of the fix (paired with the beforeunload guard
+  // below, which browsers/PWA shells don't always honor consistently) — after calling it, the sync
+  // indicator turns "Gemmer..." almost immediately instead of after the usual 300ms debounce.
+  useEffect(()=>{
+    window.__gcForceSave=()=>{
+      if(!sb||!loaded.current)return;
+      if(saveInFlight.current){saveQueued.current=true;return;}
+      runSave();
+    };
+    return()=>{delete window.__gcForceSave;};
+  },[]);
 
   // Guards against exactly the "click Release/Lock, then immediately refresh" scenario: the local
   // UI updates instantly (optimistic), but the actual write is debounced by 800ms + network time.
@@ -8148,7 +8179,7 @@ function App(){
       const rest=stripLocal(stateRef.current);
       if(JSON.stringify(rest)!==lastSaved.current){
         e.preventDefault();
-        e.returnValue="";
+        e.returnValue="Der er ændringer der ikke er gemt endnu.";
       }
     };
     window.addEventListener("beforeunload",handler);
