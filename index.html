@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.165";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -719,6 +719,30 @@ function attachEventTables(events,penaltyRows,signalRows){
 // Shared by the IMPORT_PARTICIPANTS reducer case and wrappedDispatch (which needs the exact same
 // result to know what to persist to the imported_users/registrations tables — see stripLocal).
 function genId(){return Date.now()*1000+Math.floor(Math.random()*1000);}
+
+// Uploads an image file to Supabase Storage and returns its public URL, instead of embedding it as
+// a base64 data URL directly in app state. This matters a lot: app_state is saved as one JSON blob
+// on every single change (see stripLocal/runSave below), so a base64 logo sitting in state — even
+// completely unrelated to what actually changed — gets re-uploaded on every autosave, everywhere in
+// the app. That's what was making saves as simple as claiming a kart number take several seconds:
+// the whole blob, logos included, was going over the wire each time. A Storage URL is a few dozen
+// bytes in state instead. Falls back to a plain base64 read only if Supabase isn't configured (e.g.
+// local/offline dev), so logo uploads still work without a backend.
+async function uploadLogoToStorage(file,pathPrefix){
+  if(!sb){
+    return new Promise((resolve)=>{
+      const r=new FileReader();
+      r.onload=e=>resolve(e.target.result);
+      r.readAsDataURL(file);
+    });
+  }
+  const ext=(file.name.split(".").pop()||"png").toLowerCase().replace(/[^a-z0-9]/g,"")||"png";
+  const path=`logos/${pathPrefix}-${Date.now()}.${ext}`;
+  const {error}=await sb.storage.from("documents").upload(path,file,{cacheControl:"3600",upsert:false});
+  if(error){console.error("Logo upload:",error);return null;}
+  const {data:pub}=sb.storage.from("documents").getPublicUrl(path);
+  return pub.publicUrl;
+}
 // Checks whether ANY currently-registered driver on this event shares the same license number as
 // the given user — catches the case where the same physical person has ended up with two separate
 // profiles (e.g. one from self-signup, one from a CSV import with a slightly different name
@@ -3776,6 +3800,15 @@ function AdminEvents({state,dispatch,seriesScope}){
   const logoRef=useRef(null);
   const editLogoRef=useRef(null);
   const readImg=(file,cb)=>{const r=new FileReader();r.onload=e=>cb(e.target.result);r.readAsDataURL(file);};
+  const [logoBusy,setLogoBusy]=useState(false);
+  // Uploads to Supabase Storage and stores the public URL (not a base64 blob) in state — see
+  // uploadLogoToStorage for why this matters for save speed.
+  const pickLogo=async(file,setFn,idHint)=>{
+    setLogoBusy(true);
+    const url=await uploadLogoToStorage(file,`event-${idHint||"new"}`);
+    if(url)setFn(f=>({...f,logo:url}));
+    setLogoBusy(false);
+  };
 
   const uploadEventPdf=async(file,eventId)=>{
     if(!sb){setPdfMsg(t.admNotConfigured);return;}
@@ -3834,14 +3867,14 @@ function AdminEvents({state,dispatch,seriesScope}){
       <Sel label={t.raceSeries} value={form.seriesId} onChange={v=>setForm(f=>({...f,seriesId:v,classes:classesForSeries(state.classRules,v)}))} options={[...(seriesScope?[]:[{value:"",label:t.admNoSeriesOption}]),...(seriesScope?state.raceSeries.filter(s=>seriesScope.map(Number).includes(Number(s.id))):state.raceSeries).map(s=>({value:String(s.id),label:s.name}))]}/>
       {!form.seriesId&&<div style={{marginBottom:10}}>
         <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>{t.admLogoOptional}</div>
-        <input ref={logoRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&readImg(e.target.files[0],v=>setForm(f=>({...f,logo:v})))}/>
+        <input ref={logoRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&pickLogo(e.target.files[0],setForm)}/>
         {form.logo
           ?<div style={{display:"flex",gap:8,alignItems:"center"}}>
             <img src={form.logo} style={{width:60,height:40,objectFit:"contain",borderRadius:4,border:`1px solid ${C.border}`,background:"#fff"}} alt="Logo"/>
             <button onClick={()=>setForm(f=>({...f,logo:null}))} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.textMuted,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>{t.admRemove}</button>
           </div>
-          :<div onClick={()=>logoRef.current.click()} style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:"12px",textAlign:"center",cursor:"pointer"}}>
-            <div style={{color:C.textMuted,fontSize:12}}>{t.admUploadLogoFull}</div>
+          :<div onClick={()=>!logoBusy&&logoRef.current.click()} style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:"12px",textAlign:"center",cursor:logoBusy?"default":"pointer"}}>
+            <div style={{color:C.textMuted,fontSize:12}}>{logoBusy?t.admUploading:t.admUploadLogoFull}</div>
           </div>
         }
       </div>}
@@ -3923,14 +3956,14 @@ function AdminEvents({state,dispatch,seriesScope}){
           {(state.tracks||[]).length>0&&<Sel label="Bane (valgfri – udfylder Sted)" value={editEv.trackId!==undefined&&editEv.trackId!==null?String(editEv.trackId):(ev.trackId?String(ev.trackId):"")} onChange={v=>{const tr=(state.tracks||[]).find(x=>String(x.id)===v);if(tr)setEditEv(f=>({...f,location:tr.name,trackId:tr.id}));}} options={[{value:"",label:t.admSelectTrack},...(state.tracks||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,"da")).map(tr=>({value:String(tr.id),label:tr.name}))]}/>}
           {!ev.seriesId&&<div style={{marginBottom:10}}>
             <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>{t.admLogoOptional}</div>
-            <input ref={editLogoRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&readImg(e.target.files[0],v=>setEditEv(f=>({...f,logo:v})))}/>
+            <input ref={editLogoRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&pickLogo(e.target.files[0],setEditEv,editEvId)}/>
             {editEv.logo
               ?<div style={{display:"flex",gap:8,alignItems:"center"}}>
                 <img src={editEv.logo} style={{width:60,height:40,objectFit:"contain",borderRadius:4,border:`1px solid ${C.border}`,background:"#fff"}} alt="Logo"/>
                 <button onClick={()=>setEditEv(f=>({...f,logo:null}))} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.textMuted,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>{t.admRemove}</button>
               </div>
-              :<div onClick={()=>editLogoRef.current.click()} style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:"10px",textAlign:"center",cursor:"pointer"}}>
-                <div style={{color:C.textMuted,fontSize:11}}>{t.admUploadLogo}</div>
+              :<div onClick={()=>!logoBusy&&editLogoRef.current.click()} style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:"10px",textAlign:"center",cursor:logoBusy?"default":"pointer"}}>
+                <div style={{color:C.textMuted,fontSize:11}}>{logoBusy?t.admUploading:t.admUploadLogo}</div>
               </div>
             }
           </div>}
@@ -4161,8 +4194,16 @@ function AdminSeries({state,dispatch}){
   const [editForm,setEditForm]=useState({name:"",logo:null,ownKartRegister:false});
   const logoRef=useRef();
   const editLogoRef=useRef();
+  const [logoBusy,setLogoBusy]=useState(false);
 
-  const readImg=(file,cb)=>{const r=new FileReader();r.onload=e=>cb(e.target.result);r.readAsDataURL(file);};
+  // Uploads to Supabase Storage and stores the public URL (not a base64 blob) in state — see
+  // uploadLogoToStorage for why this matters for save speed.
+  const pickLogo=async(file,setFn,idHint)=>{
+    setLogoBusy(true);
+    const url=await uploadLogoToStorage(file,`series-${idHint||"new"}`);
+    if(url)setFn(f=>({...f,logo:url}));
+    setLogoBusy(false);
+  };
 
   const create=()=>{
     if(!form.name)return;
@@ -4177,8 +4218,8 @@ function AdminSeries({state,dispatch}){
 
   return <div>
     <SH title={t.admSeriesTitle}/>
-    <input ref={logoRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&readImg(e.target.files[0],v=>setForm(f=>({...f,logo:v})))}/>
-    <input ref={editLogoRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&readImg(e.target.files[0],v=>setEditForm(f=>({...f,logo:v})))}/>
+    <input ref={logoRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&pickLogo(e.target.files[0],setForm)}/>
+    <input ref={editLogoRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&pickLogo(e.target.files[0],setEditForm,editId)}/>
     <Card style={{borderLeft:`3px solid ${C.red}`}}>
       <Input label={t.admSeriesName} value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="f.eks. Rotax Vinter Cup 2026"/>
       <div style={{marginBottom:10}}>
@@ -4188,8 +4229,8 @@ function AdminSeries({state,dispatch}){
             <img src={form.logo} style={{width:60,height:40,objectFit:"contain",borderRadius:4,border:`1px solid ${C.border}`,background:"#fff"}} alt="Logo"/>
             <button onClick={()=>setForm(f=>({...f,logo:null}))} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.textMuted,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>{t.admRemove}</button>
           </div>
-          :<div onClick={()=>logoRef.current.click()} style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:"12px",textAlign:"center",cursor:"pointer"}}>
-            <div style={{color:C.textMuted,fontSize:12}}>{t.admUploadLogoFull}</div>
+          :<div onClick={()=>!logoBusy&&logoRef.current.click()} style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:"12px",textAlign:"center",cursor:logoBusy?"default":"pointer"}}>
+            <div style={{color:C.textMuted,fontSize:12}}>{logoBusy?t.admUploading:t.admUploadLogoFull}</div>
           </div>
         }
       </div>
@@ -4210,8 +4251,8 @@ function AdminSeries({state,dispatch}){
                 <img src={editForm.logo} style={{width:60,height:40,objectFit:"contain",borderRadius:4,border:`1px solid ${C.border}`,background:"#fff"}} alt="Logo"/>
                 <button onClick={()=>setEditForm(f=>({...f,logo:null}))} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.textMuted,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>{t.admRemove}</button>
               </div>
-              :<div onClick={()=>editLogoRef.current.click()} style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:"10px",textAlign:"center",cursor:"pointer"}}>
-                <div style={{color:C.textMuted,fontSize:11}}>{t.admUploadLogo}</div>
+              :<div onClick={()=>!logoBusy&&editLogoRef.current.click()} style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:"10px",textAlign:"center",cursor:logoBusy?"default":"pointer"}}>
+                <div style={{color:C.textMuted,fontSize:11}}>{logoBusy?t.admUploading:t.admUploadLogo}</div>
               </div>
             }
           </div>
