@@ -487,11 +487,17 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
 
   // Active classes for this event with "scanned in" progress for the currently selected context
   // (checkin, or a specific heat/session) — a driver counts as scanned once they have at least
-  // one equipment_scans row (any part) in that context.
+  // one equipment_scans row (any part) in that context. If a class has heat-split groups (A/B/C)
+  // for this context, also break the progress down per group underneath it.
   const classProgress=[...new Set((ev.registrations||[]).map(r=>r.class))].filter(Boolean).sort((a,b)=>a.localeCompare(b,"da")).map(cls=>{
     const total=(ev.registrations||[]).filter(r=>r.class===cls).length;
     const scannedIds=new Set(scans.filter(s=>s.event_id===ev.id&&s.class===cls&&(sessionCtx==="checkin"?!s.session:s.session===sessionCtx)).map(s=>s.driver_id));
-    return {cls,scanned:scannedIds.size,total};
+    const groupLetters=sessionGroupLetters(ev,cls,sessionCtx);
+    const groups=groupLetters.map(g=>{
+      const list=sessionDrivers(ev,cls,sessionCtx,users,[g]);
+      return {g,scanned:list.filter(d=>scannedIds.has(d.id)).length,total:list.length};
+    });
+    return {cls,scanned:scannedIds.size,total,groups};
   });
 
   return <div>
@@ -542,10 +548,10 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
 
     {classProgress.length>0&&<Card>
       <div style={{color:C.textMuted,fontSize:11,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>{STR.classProgress}</div>
-      {classProgress.map(({cls,scanned,total})=>{
+      {classProgress.map(({cls,scanned,total,groups})=>{
         const pct=total?Math.min(100,Math.round(scanned/total*100)):0;
         const done=total>0&&scanned>=total;
-        return <div key={cls} style={{marginBottom:8}}>
+        return <div key={cls} style={{marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}>
             <span style={{color:C.text}}>{cls}</span>
             <span style={{color:done?C.green:C.textMuted,fontWeight:700}}>{scanned}/{total}</span>
@@ -553,6 +559,12 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
           <div style={{height:4,background:C.surface2,borderRadius:2,overflow:"hidden"}}>
             <div style={{height:"100%",width:`${pct}%`,background:done?C.green:C.red,borderRadius:2}}/>
           </div>
+          {groups.length>0&&<div style={{display:"flex",gap:10,marginTop:5,paddingLeft:2}}>
+            {groups.map(({g,scanned:gs,total:gt})=>{
+              const gDone=gt>0&&gs>=gt;
+              return <div key={g} style={{fontSize:11,color:gDone?C.green:C.textMuted}}>{STR.group} {g}: <strong>{gs}/{gt}</strong></div>;
+            })}
+          </div>}
         </div>;
       })}
     </Card>}
