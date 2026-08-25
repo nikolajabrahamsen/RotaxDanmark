@@ -559,10 +559,11 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
           <div style={{height:4,background:C.surface2,borderRadius:2,overflow:"hidden"}}>
             <div style={{height:"100%",width:`${pct}%`,background:done?C.green:C.red,borderRadius:2}}/>
           </div>
-          {groups.length>0&&<div style={{display:"flex",gap:10,marginTop:5,paddingLeft:2}}>
+          {groups.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:7}}>
             {groups.map(({g,scanned:gs,total:gt})=>{
               const gDone=gt>0&&gs>=gt;
-              return <div key={g} style={{fontSize:11,color:gDone?C.green:C.textMuted}}>{STR.group} {g}: <strong>{gs}/{gt}</strong></div>;
+              const color=gDone?C.green:C.red;
+              return <div key={g} style={{fontSize:12,fontWeight:700,color,background:`${color}18`,border:`1px solid ${color}55`,borderRadius:6,padding:"3px 9px"}}>{STR.group} {g}: {gs}/{gt}</div>;
             })}
           </div>}
         </div>;
