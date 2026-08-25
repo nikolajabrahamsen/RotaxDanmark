@@ -608,7 +608,10 @@ function HeatOverview({ev,users,sessions,scans}){
   const [selGroups,setSelGroups]=useState([]);
   const classes=[...new Set((ev.registrations||[]).map(r=>r.class))].sort();
   const groupLetters=selClass?sessionGroupLetters(ev,selClass,selSession):[];
-  const drivers=selClass?sessionDrivers(ev,selClass,selSession,users,selGroups):[];
+  // Unfiltered-by-group list, so per-group counts below can be computed regardless of which
+  // group toggle(s) are currently active — the toggle only affects the detail list further down.
+  const allDrivers=selClass?sessionDrivers(ev,selClass,selSession,users,[]):[];
+  const drivers=selGroups.length?allDrivers.filter(d=>selGroups.includes(d._group)):allDrivers;
 
   const statusFor=(driverId)=>{
     const rows=scans.filter(s=>s.event_id===ev.id&&s.driver_id===driverId&&(selSession==="checkin"?!s.session:s.session===selSession));
@@ -619,12 +622,37 @@ function HeatOverview({ev,users,sessions,scans}){
 
   const toggleGroup=g=>setSelGroups(gs=>gs.includes(g)?gs.filter(x=>x!==g):[...gs,g]);
 
+  // Per-group scan breakdown (e.g. "Gruppe A — 8 scannet, 1 afvist, 3 mangler"), independent of
+  // which group(s) are toggled on — this is what makes "how many in group A are scanned" visible
+  // at a glance instead of needing to filter down to just that group first.
+  const groupStats=groupLetters.map(g=>{
+    const list=allDrivers.filter(d=>d._group===g);
+    return{
+      g,total:list.length,
+      scanned:list.filter(d=>statusFor(d.id)==="scanned").length,
+      rejected:list.filter(d=>statusFor(d.id)==="rejected").length,
+      missing:list.filter(d=>statusFor(d.id)==="none").length,
+    };
+  });
+
   return <div>
     <Card>
       <Sel label={STR.class} value={selClass} onChange={v=>{setSelClass(v);setSelGroups([]);}} options={[{value:"",label:STR.chooseClass},...classes.map(c=>({value:c,label:c}))]}/>
       <Sel label={STR.session} value={selSession} onChange={v=>{setSelSession(v);setSelGroups([]);}} options={[{value:"checkin",label:STR.checkin},...sessions.map(s=>({value:s.name,label:s.name}))]}/>
-      {groupLetters.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
-        {groupLetters.map(g=>{const on=selGroups.includes(g);return <button key={g} onClick={()=>toggleGroup(g)} style={{background:on?C.cyan:C.surface2,color:on?"#000":C.textMuted,border:`1px solid ${on?C.cyan:C.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{on?"✓ ":""}{STR.group} {g}</button>;})}
+      {groupStats.length>0&&<div style={{marginTop:10}}>
+        <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>{STR.group}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {groupStats.map(({g,total,scanned,rejected,missing})=>{
+            const on=selGroups.includes(g);
+            return <button key={g} onClick={()=>toggleGroup(g)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:on?C.cyan+"22":C.surface2,border:`1px solid ${on?C.cyan:C.border}`,borderRadius:8,padding:"8px 12px",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+              <span style={{color:on?C.cyan:C.text,fontWeight:700,fontSize:13}}>{on?"✓ ":""}{STR.group} {g}</span>
+              <span style={{display:"flex",gap:6,flexShrink:0}}>
+                <Badge color={C.green} style={{fontSize:10}}>{scanned}/{total}</Badge>
+                {rejected>0&&<Badge color={C.red} style={{fontSize:10}}>{rejected} {STR.rejected}</Badge>}
+              </span>
+            </button>;
+          })}
+        </div>
       </div>}
     </Card>
 
@@ -634,18 +662,41 @@ function HeatOverview({ev,users,sessions,scans}){
         <Badge color={C.red}>{drivers.filter(d=>statusFor(d.id)==="rejected").length} {STR.rejected}</Badge>
         <Badge color={C.textDim}>{drivers.filter(d=>statusFor(d.id)==="none").length} {STR.missing}</Badge>
       </div>
-      {drivers.map(d=>{
-        const st=statusFor(d.id);
-        const color={scanned:C.green,rejected:C.red,none:C.textDim}[st];
-        const label={scanned:STR.scannedLabel,rejected:STR.rejectedLabel,none:STR.missingLabel}[st];
-        return <Card key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderLeft:`3px solid ${color}`}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:14}}>#{d.kartNumber||"?"} {d.name}</div>
-            <div style={{color:C.textMuted,fontSize:11}}>{d._group?`${STR.group} ${d._group}`:""}</div>
-          </div>
-          <Badge color={color}>{label}</Badge>
-        </Card>;
-      })}
+      {(()=>{
+        // With no group filter active and the class actually has groups, break the list into a
+        // section per group (each with its own mini-heading) instead of one flat mixed list —
+        // this is the "show the groups for the heat under the class" part of the request.
+        if(!selGroups.length&&groupLetters.length>0){
+          return groupLetters.map(g=>{
+            const list=allDrivers.filter(d=>d._group===g);
+            if(list.length===0)return null;
+            return <div key={g} style={{marginBottom:14}}>
+              <div style={{color:C.textMuted,fontSize:11,fontWeight:700,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>{STR.group} {g}</div>
+              {list.map(d=>{
+                const st=statusFor(d.id);
+                const color={scanned:C.green,rejected:C.red,none:C.textDim}[st];
+                const label={scanned:STR.scannedLabel,rejected:STR.rejectedLabel,none:STR.missingLabel}[st];
+                return <Card key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderLeft:`3px solid ${color}`}}>
+                  <div style={{fontWeight:700,fontSize:14}}>#{d.kartNumber||"?"} {d.name}</div>
+                  <Badge color={color}>{label}</Badge>
+                </Card>;
+              })}
+            </div>;
+          });
+        }
+        return drivers.map(d=>{
+          const st=statusFor(d.id);
+          const color={scanned:C.green,rejected:C.red,none:C.textDim}[st];
+          const label={scanned:STR.scannedLabel,rejected:STR.rejectedLabel,none:STR.missingLabel}[st];
+          return <Card key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderLeft:`3px solid ${color}`}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:14}}>#{d.kartNumber||"?"} {d.name}</div>
+              <div style={{color:C.textMuted,fontSize:11}}>{d._group?`${STR.group} ${d._group}`:""}</div>
+            </div>
+            <Badge color={color}>{label}</Badge>
+          </Card>;
+        });
+      })()}
       {drivers.length===0&&<div style={{color:C.textDim,fontSize:12,padding:16,textAlign:"center"}}>{STR.noDriversFound}</div>}
     </>}
   </div>;
