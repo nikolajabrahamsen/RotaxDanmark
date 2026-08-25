@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.169";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -1631,7 +1631,7 @@ function KartRegisterScreen({state,dispatch}){
     setTimeout(()=>window.__gcForceSave?.(),50);
   };
 
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.kartNumber} sub={t.kartNumberSub}/>
     {kids.length>0&&<div style={{marginBottom:14}}>
       <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>{t.colName==="Navn"?"Vælg nummer til":"Choose number for"}</div>
@@ -1946,7 +1946,7 @@ function ProfileScreen({state,dispatch}){
     };reader.readAsDataURL(file);
   };
 
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.profile}/>
     <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:16}}>
       <div style={{width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${C.red},${C.redDark})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:900,color:"white",flexShrink:0}}>{u.name.charAt(0)}</div>
@@ -2103,7 +2103,7 @@ function CalendarScreen({state,dispatch}){
   if(sel&&step>0){
     const pm=sel.paymentDestination||{};
     const evClasses=sortClassesByAge(sel.classes.filter(c=>myEligible.includes(c)),state.classRules);
-    return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+    return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
       <Btn small variant="ghost" onClick={()=>setStep(step>1?(step===3&&!TYRE_REGISTRATION_ENABLED?1:step-1):0)} style={{marginBottom:12}}>{t.back}</Btn>
       <SH title={sel.name} sub={`Trin ${TYRE_REGISTRATION_ENABLED?step:(step===3?2:step)} af ${TYRE_REGISTRATION_ENABLED?3:2}`}/>
       {step===1&&<div>
@@ -2180,7 +2180,7 @@ function CalendarScreen({state,dispatch}){
   }
 
   if(sel&&showOverview){
-    return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+    return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
       <Btn small variant="ghost" onClick={()=>setShowOverview(false)} style={{marginBottom:12}}>{t.back}</Btn>
       <EventOverview ev={sel} state={state}/>
     </div>;
@@ -2188,7 +2188,7 @@ function CalendarScreen({state,dispatch}){
 
   if(sel){
     const evClasses=sortClassesByAge(sel.classes,state.classRules);
-    return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+    return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
       <Btn small variant="ghost" onClick={()=>setSel(null)} style={{marginBottom:12}}>{t.back}</Btn>
       <div style={{background:`linear-gradient(135deg,${C.redDark},#1a0003)`,borderRadius:10,padding:18,marginBottom:14}}>
         <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>{sel.date}{sel.endDate&&sel.endDate!==sel.date?" – "+sel.endDate:""}</div>
@@ -2252,7 +2252,7 @@ function CalendarScreen({state,dispatch}){
     </div>;
   }
 
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.selectRaceHeader}/>
     {state.events.length>0&&<div style={{marginBottom:14}}>
       <Sel value={String((state.uiPrefs||{}).selectedRace||"")} onChange={v=>dispatch({type:"SET_UI_PREF",key:"selectedRace",value:v})} options={[{value:"",label:t.noneSelected},...state.events.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(e=>({value:String(e.id),label:e.name}))]}/>
@@ -2310,7 +2310,7 @@ function StandingsScreen({state,dispatch}){
   const hasDrop=cls?.hasDrop;
   const SEGS=[["kval","Kval"],["heats","Heats"],["pre","Pre"],["finale","Fin"]];
 
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.championship}/>
     {series.length===0
       ?<div style={{color:C.textMuted,textAlign:"center",padding:30,fontSize:13}}>{t.noSeries}</div>
@@ -2385,7 +2385,7 @@ function DocumentsScreen({state,dispatch}){
   const types=["Alle","Startgrid","Resultat","Opslagstavle"];
   const SL={kval:"Kval",heat:"Heat",prefinale:"Prefinale",finale:"Finale"};
   const filtered=allDocs.filter(d=>(cf==="Alle"||d.class===cf)&&(tf==="Alle"||d.type===tf));
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.docs}/>
     <Sel label={t.race} value={evF} onChange={v=>{setEvF(v);setCf("Alle");}} options={[{value:"Alle",label:t.allRaces},...state.events.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(e=>({value:String(e.id),label:e.name}))]}/>
     <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:6,paddingBottom:2}}>{classes.map(c=><button key={c} onClick={()=>setCf(c)} style={{background:cf===c?C.red:C.surface2,color:cf===c?"#fff":C.textMuted,border:`1px solid ${cf===c?C.red:C.border}`,borderRadius:20,padding:"4px 10px",fontSize:10,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{c}</button>)}</div>
@@ -2427,7 +2427,7 @@ function PenaltiesScreen({state,dispatch}){
   // If a penalty came in with only a kart # and class, look up the registered driver's name instead
   // of leaving it blank.
   const nameForPenalty=(p)=>p.driverName||findDriverNameByKart(state,state.events.find(e=>e.id===p._evId),parseInt(p.kartNo),p.class);
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.penalties} sub={t.penaltiesSub}/>
     <Sel label={t.race} value={evF} onChange={v=>{setEvF(v);setCf("Alle");}} options={[{value:"Alle",label:t.allRaces},...state.events.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(e=>({value:String(e.id),label:e.name}))]}/>
     <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:2}}>{classes.map(c=><button key={c} onClick={()=>setCf(c)} style={{background:cf===c?C.orange:C.surface2,color:cf===c?"#fff":C.textMuted,border:`1px solid ${cf===c?C.orange:C.border}`,borderRadius:20,padding:"4px 10px",fontSize:10,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{c}</button>)}</div>
@@ -2444,7 +2444,7 @@ function PenaltiesScreen({state,dispatch}){
 function RegulationsScreen({state}){
   const t=useT();
   const regs=state.regulations||[];
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.rulesTitle} sub="2026"/>
     {regs.length===0&&<div style={{color:C.textMuted,textAlign:"center",padding:30,fontSize:13}}>Ingen reglementer uploadet endnu.</div>}
     {regs.map(r=>{
@@ -2485,7 +2485,7 @@ function NotifScreen({state,dispatch}){
     .filter(n=>evF==="Alle"||String(n.eventId)===evF)
     .filter(n=>classF==="Alle"||n.targetClass===classF)
     .filter(n=>isOff||!n.targetClass||n.targetClass==="Alle"||myClasses.has(n.targetClass));
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.notifications}/>
     <Sel label={t.race} value={evF} onChange={setEvF} options={[{value:"Alle",label:t.allRaces},...state.events.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(e=>({value:String(e.id),label:e.name}))]}/>
     <Sel label={t.admFieldClass} value={classF} onChange={setClassF} options={["Alle",...availableClasses]}/>
@@ -2519,7 +2519,7 @@ function LiveTimingScreen({state,dispatch}){
     {pos:4,kartNo:246,name:"Malik Arsland",lastLap:"58.891",bestLap:"58.445",gap:"+1.554"},
     {pos:5,kartNo:145,name:"Erik Brandsborg",lastLap:"59.102",bestLap:"58.612",gap:"+2.112"},
   ];
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title="Livetiming" sub="MyLaps Orbit 5 integration"/>
     <div style={{background:`${C.green}11`,border:`1px solid ${C.green}44`,borderRadius:8,padding:10,marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
       <div style={{width:8,height:8,borderRadius:"50%",background:C.green,animation:"pulse 1.5s infinite",flexShrink:0}}/>
@@ -2661,7 +2661,7 @@ function OfficialWeightScreen({state,dispatch}){
     <Btn onClick={()=>setDone(false)}>Ny indrapportering</Btn>
   </div>;
 
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.weight} sub={t.weightSub}/>
     <div style={{background:"#1a001a",border:"1px solid #9B59B644",borderRadius:6,padding:8,marginBottom:12,display:"flex",gap:6,alignItems:"center"}}>
       <span>🔒</span><span style={{color:C.purple,fontSize:11,fontWeight:700}}>{t.onlyOfficials}</span>
@@ -2801,7 +2801,7 @@ function OfficialNoseScreen({state,dispatch}){
     <Btn onClick={()=>setDone(false)}>Ny indrapportering</Btn>
   </div>;
 
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.nose} sub={t.noseSub}/>
     <div style={{background:"#1a001a",border:"1px solid #9B59B644",borderRadius:6,padding:8,marginBottom:12,display:"flex",gap:6,alignItems:"center"}}>
       <span>🔒</span><span style={{color:C.purple,fontSize:11,fontWeight:700}}>{t.onlyOfficials}</span>
@@ -2964,7 +2964,7 @@ function OfficialTechScreen({state,dispatch}){
     <Btn onClick={()=>setDone(false)}>Ny indrapportering</Btn>
   </div>;
 
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.colName==="Navn"?"Teknisk kontrol":"Tech control"} sub={t.colName==="Navn"?"Foto + PDF til teknisk kontrol":"Photo + PDF for tech control"}/>
     <div style={{background:"#1a001a",border:"1px solid #9B59B644",borderRadius:6,padding:8,marginBottom:12,display:"flex",gap:6,alignItems:"center"}}>
       <span>🔒</span><span style={{color:C.purple,fontSize:11,fontWeight:700}}>{t.onlyOfficials}</span>
@@ -3046,7 +3046,7 @@ function TechPdfScreen({state,dispatch,useGlobalEv=false}){
       <div style={{color:C.textMuted,textAlign:"center",padding:24}}>{t.admNotAssignedTech}</div>
     </div>;
   }
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.admTechPdfTitle} sub={t.admTechPdfSub}/>
     <div style={{background:"#1a001a",border:"1px solid #9B59B644",borderRadius:6,padding:8,marginBottom:12,display:"flex",gap:6,alignItems:"center"}}>
       <span>🔒</span><span style={{color:C.purple,fontSize:11,fontWeight:700}}>{t.admOnlyVisibleAdminSubTech}</span>
@@ -3138,7 +3138,7 @@ function OfficialInspectionScreen({state,dispatch}){
     <Btn onClick={()=>setDone(false)}>{t.newReport}</Btn>
   </div>;
 
-  return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+  return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
     <SH title={t.navReporting} sub={t.reportingSub}/>
     <div style={{background:"#1a001a",border:"1px solid #9B59B644",borderRadius:6,padding:8,marginBottom:12,display:"flex",gap:6,alignItems:"center"}}>
       <span>🔒</span><span style={{color:C.purple,fontSize:11,fontWeight:700}}>{t.onlyOfficials}</span>
@@ -4319,7 +4319,7 @@ function AdminUsers({state,dispatch}){
 
   if(editId){
     const u=state.users.find(u=>u.id===editId)||{};
-    return <div style={{padding:0,overflowY:"auto",height:"100%"}}>
+    return <div style={{padding:0,paddingBottom:"calc(max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <Btn small variant="ghost" onClick={()=>setEditId(null)}>← Tilbage</Btn>
       </div>
@@ -7214,7 +7214,7 @@ function DriverListScreen({state,dispatch,useGlobalEv=false,seriesScope=null}){
 
   if(selDriver){
     const u=selDriver.user;
-    return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+    return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
         <Btn small variant="ghost" onClick={()=>setSelDriver(null)}>{t.admBack}</Btn>
         <Btn small variant={editMode?"secondary":"ghost"} onClick={()=>{setEditMode(!editMode);setSaved(false);}}>{editMode?t.cancel:"✏️ "+t.edit}</Btn>
@@ -7383,7 +7383,7 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
   // ── Edit profile panel ─────────────────────────────────────────
   if(editUser){
     const u=editUser.user;
-    return <div style={{padding:16,overflowY:"auto",height:"100%"}}>
+    return <div style={{padding:16,paddingBottom:"calc(16px + max(64px, env(safe-area-inset-bottom)))",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
       <Btn small variant="ghost" onClick={()=>setEditUser(null)} style={{marginBottom:14}}>{t.admBack}</Btn>
       <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:16}}>
         <div style={{width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${C.red},${C.redDark})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,color:"white",fontSize:18,flexShrink:0}}>{u.name?.charAt(0)}</div>
@@ -7978,7 +7978,12 @@ function App(){
         skipNextSave.current=true;
         lastSaved.current=JSON.stringify(stripLocal({...initialState,...data.data}));
         dispatch({type:"HYDRATE",payload});
-        setSync(importedErr||penaltyErr||signalErr||notifErr||regErr||kartRegErr?"error":"synced");
+        // kartRegErr is deliberately excluded here: that table gracefully falls back to whatever's
+        // already loaded locally (see the HYDRATE reducer case), so a failure there — most commonly
+        // because the kart_registers table hasn't been created yet — shouldn't flip the whole app's
+        // sync indicator to "error" the way a genuine core-data failure should.
+        if(kartRegErr)console.warn("kart_registers table unavailable — if this is a fresh setup, run the migration SQL to create it. Kart numbers will keep working from local/cached data in the meantime.");
+        setSync(importedErr||penaltyErr||signalErr||notifErr||regErr?"error":"synced");
         loadSucceeded=true;
       }else{
         // CRITICAL: this branch is meant only for a genuinely brand-new database with no app_state
