@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.170";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -6300,17 +6300,32 @@ function AdminRaceReport({state,dispatch,seriesScope}){
       const {PDFDocument}=PDFLib;
 
       const doc=new jsPDFCtor({unit:"mm",format:"a4"});
-      const pageW=210,pageH=297,margin=14;
+      const pageW=210,pageH=297,margin=16;
       let y=margin;
 
-      const ensureSpace=(needed)=>{if(y+needed>pageH-margin){doc.addPage();y=margin;}};
-      const sectionHeader=(title)=>{
-        ensureSpace(16);
-        doc.setFont(undefined,"bold");doc.setFontSize(15);
-        doc.text(title,margin,y);y+=6;
-        doc.setDrawColor(220);doc.line(margin,y,pageW-margin,y);y+=8;
-        doc.setFont(undefined,"normal");doc.setFontSize(10);
+      // Print-safe brand palette (fixed regardless of the app's light/dark theme — a report should
+      // look the same on paper no matter which theme the admin generated it in).
+      const BRAND={red:[227,6,19],dark:[26,26,26],muted:[110,110,110],line:[224,224,224],shade:[247,247,247],headShade:[236,236,236]};
+      const hexToRgb=(hex)=>{
+        if(!hex)return BRAND.red;
+        const m=String(hex).replace("#","").match(/.{1,2}/g);
+        return m?m.map(h=>parseInt(h,16)):BRAND.red;
       };
+
+      // Thin brand bar across the very top of every page — drawn on the cover immediately below,
+      // and again each time a new page starts (see newPage/ensureSpace/startSection).
+      const addTopBar=()=>{doc.setFillColor(...BRAND.red);doc.rect(0,0,pageW,3,"F");};
+      const newPage=()=>{doc.addPage();addTopBar();y=margin;};
+      addTopBar();
+
+      const sectionHeader=(title)=>{
+        doc.setFillColor(...BRAND.red);doc.rect(margin,y-4,2.2,7,"F");
+        doc.setFont(undefined,"bold");doc.setFontSize(14);doc.setTextColor(...BRAND.dark);
+        doc.text(title.toUpperCase(),margin+6,y);y+=6;
+        doc.setDrawColor(...BRAND.red);doc.setLineWidth(0.6);doc.line(margin,y,pageW-margin,y);doc.setLineWidth(0.2);y+=8;
+        doc.setFont(undefined,"normal");doc.setFontSize(10);doc.setTextColor(...BRAND.dark);
+      };
+      const ensureSpace=(needed)=>{if(y+needed>pageH-margin){newPage();}};
 
       // Series logo, top-right of page 1, if this race belongs to a series that has one uploaded.
       const series=state.raceSeries.find(s=>s.id===ev.seriesId);
@@ -6322,51 +6337,65 @@ function AdminRaceReport({state,dispatch,seriesScope}){
             img.onerror=reject;
             img.src=series.logo;
           });
-          const maxW=40,maxH=20;
+          const maxW=36,maxH=18;
           let logoW=maxW,logoH=maxW*(dims.height/dims.width);
           if(logoH>maxH){logoH=maxH;logoW=maxH*(dims.width/dims.height);}
           const fmt=/^data:image\/png/i.test(series.logo)?"PNG":"JPEG";
-          doc.addImage(series.logo,fmt,pageW-margin-logoW,margin,logoW,logoH);
+          doc.addImage(series.logo,fmt,pageW-margin-logoW,margin+2,logoW,logoH);
         }catch(e){console.error("Could not add series logo to report",e);}
       }
 
       // Page 1: cover + officials + signature line. All selected report content starts on page 2.
-      doc.setFont(undefined,"bold");doc.setFontSize(20);
-      doc.text(t.admReportPdfTitle,margin,y);y+=9;
+      doc.setFont(undefined,"bold");doc.setFontSize(10);doc.setTextColor(...BRAND.red);
+      doc.text("GRIDCONTROL",margin,y+2);y+=10;
+      doc.setFont(undefined,"bold");doc.setFontSize(22);doc.setTextColor(...BRAND.dark);
+      doc.text(t.admReportPdfTitle,margin,y);y+=10;
       doc.setFont(undefined,"bold");doc.setFontSize(15);
       doc.text(ev.name,margin,y);y+=7;
-      doc.setFont(undefined,"normal");doc.setFontSize(11);
+      doc.setFont(undefined,"normal");doc.setFontSize(11);doc.setTextColor(...BRAND.muted);
       doc.text(`${ev.date}${ev.endDate&&ev.endDate!==ev.date?" – "+ev.endDate:""}${ev.location?" · "+ev.location:""}`,margin,y);y+=6;
-      doc.setFontSize(9);doc.setTextColor(120);
-      doc.text(`${t.admReportGeneratedLabel} ${new Date().toLocaleString("da-DK")}`,margin,y);y+=12;
-      doc.setTextColor(0);
+      doc.setFontSize(9);
+      doc.text(`${t.admReportGeneratedLabel} ${new Date().toLocaleString("da-DK")}`,margin,y);y+=13;
+      doc.setTextColor(...BRAND.dark);
 
-      doc.setFont(undefined,"bold");doc.setFontSize(13);
-      doc.text(t.admReportOfficialsHdr,margin,y);y+=6;
-      doc.setDrawColor(220);doc.line(margin,y,pageW-margin,y);y+=9;
-      doc.setFont(undefined,"normal");doc.setFontSize(11);
-      officialFields.forEach(([key,label])=>{
-        doc.setFont(undefined,"bold");
-        doc.text(label+":",margin,y);
+      // Officials block: light shaded card with a header bar, alternating row shading, and a
+      // dotted fill-in line for anything left blank, instead of a flat plain list.
+      const offRowH=9.5;
+      const offBoxTop=y;
+      const offBoxH=6+officialFields.length*offRowH+3;
+      doc.setFillColor(...BRAND.shade);doc.roundedRect(margin,offBoxTop,pageW-2*margin,offBoxH,2,2,"F");
+      doc.setFillColor(...BRAND.headShade);doc.rect(margin,offBoxTop,pageW-2*margin,7,"F");
+      doc.setFont(undefined,"bold");doc.setFontSize(10);doc.setTextColor(...BRAND.dark);
+      doc.text(t.admReportOfficialsHdr.toUpperCase(),margin+4,offBoxTop+5);
+      y=offBoxTop+7+6;
+      doc.setFont(undefined,"normal");doc.setFontSize(10.5);
+      officialFields.forEach(([key,label],i)=>{
+        if(i%2===1){doc.setFillColor(...BRAND.headShade);doc.rect(margin+2,y-6,pageW-2*margin-4,offRowH-1,"F");}
+        doc.setFont(undefined,"bold");doc.setTextColor(...BRAND.dark);
+        doc.text(label+":",margin+5,y);
         const val=(officials[key]||"").trim();
         doc.setFont(undefined,"normal");
         if(val){
-          doc.text(val,margin+68,y);
+          doc.setTextColor(...BRAND.dark);
+          doc.text(val,margin+70,y);
         }else{
-          doc.setDrawColor(180);
-          doc.line(margin+68,y+1,pageW-margin,y+1);
+          doc.setDrawColor(...BRAND.muted);doc.setLineDashPattern([0.8,0.8],0);
+          doc.line(margin+70,y+1,pageW-margin-4,y+1);
+          doc.setLineDashPattern([],0);
         }
-        y+=10;
+        y+=offRowH;
       });
+      y=offBoxTop+offBoxH+14;
 
       // Signature block, anchored near the bottom of page 1 regardless of how much is above it.
       const sigY=pageH-40;
-      doc.setDrawColor(0);
+      doc.setDrawColor(...BRAND.dark);doc.setLineWidth(0.3);
       doc.line(margin,sigY,margin+75,sigY);
       doc.line(margin+95,sigY,margin+150,sigY);
-      doc.setFontSize(9);
+      doc.setFontSize(9);doc.setTextColor(...BRAND.muted);
       doc.text(t.admReportSignatureLabel,margin,sigY+5);
       doc.text(t.admReportDateLabel,margin+95,sigY+5);
+      doc.setTextColor(...BRAND.dark);
 
       // Everything selected below always starts fresh on page 2, and each section below gets its
       // own page too — startSection() adds a new page before every section except the first one,
@@ -6374,10 +6403,10 @@ function AdminRaceReport({state,dispatch,seriesScope}){
       // selected at all, skip creating an otherwise-empty page 2 here — any merged PDFs appended
       // below will then correctly become page 2 themselves instead of leaving a blank page first.
       const hasTextSection=opts.classCounts||opts.competitors||opts.penalties;
-      if(hasTextSection){doc.addPage();y=margin;}
-      doc.setDrawColor(220);doc.setFontSize(10);doc.setTextColor(0);
+      if(hasTextSection){newPage();}
+      doc.setFontSize(10);doc.setTextColor(...BRAND.dark);
       let firstSection=true;
-      const startSection=()=>{if(!firstSection){doc.addPage();y=margin;}firstSection=false;};
+      const startSection=()=>{if(!firstSection){newPage();}firstSection=false;};
 
       // Shared by both the class-count summary and the full competitor list below.
       const byClass={};
@@ -6392,40 +6421,65 @@ function AdminRaceReport({state,dispatch,seriesScope}){
       if(opts.classCounts){
         startSection();
         sectionHeader(t.admReportClassCountsHdr);
-        if(!classNames.length){doc.text(t.admReportNoCompetitors,margin,y);y+=6;}
+        if(!classNames.length){doc.setTextColor(...BRAND.muted);doc.text(t.admReportNoCompetitors,margin,y);y+=6;}
+        // Header row
+        if(classNames.length){
+          doc.setFillColor(...BRAND.headShade);doc.rect(margin,y-4.5,pageW-2*margin,6.5,"F");
+          doc.setFont(undefined,"bold");doc.setFontSize(9);doc.setTextColor(...BRAND.muted);
+          doc.text("KLASSE",margin+2,y);
+          doc.text((t.admReportTotalLabel||"ANTAL").toUpperCase(),pageW-margin-2,y,{align:"right"});
+          y+=7;
+        }
         let totalCount=0;
-        classNames.forEach(cls=>{
-          ensureSpace(6);
+        classNames.forEach((cls,i)=>{
+          ensureSpace(6.5);
           const count=byClass[cls].length;
           totalCount+=count;
-          doc.setFont(undefined,"normal");doc.setFontSize(10);
-          doc.text(cls,margin,y);
-          doc.text(String(count),pageW-margin-10,y,{align:"right"});
-          y+=5.5;
+          if(i%2===1){doc.setFillColor(...BRAND.shade);doc.rect(margin,y-4.5,pageW-2*margin,6.5,"F");}
+          const clsColor=hexToRgb(state.classRules[cls]?.color);
+          doc.setFillColor(...clsColor);doc.circle(margin+2,y-1.2,1.1,"F");
+          doc.setFont(undefined,"normal");doc.setFontSize(10.5);doc.setTextColor(...BRAND.dark);
+          doc.text(cls,margin+6,y);
+          doc.setFont(undefined,"bold");
+          doc.text(String(count),pageW-margin-2,y,{align:"right"});
+          y+=6.5;
         });
         if(classNames.length){
-          ensureSpace(7);
-          doc.setDrawColor(220);doc.line(margin,y,pageW-margin,y);y+=5;
-          doc.setFont(undefined,"bold");doc.setFontSize(10);
-          doc.text(t.admReportTotalLabel,margin,y);
-          doc.text(String(totalCount),pageW-margin-10,y,{align:"right"});
-          y+=5.5;
+          ensureSpace(8);
+          doc.setDrawColor(...BRAND.dark);doc.setLineWidth(0.5);doc.line(margin,y-3,pageW-margin,y-3);doc.setLineWidth(0.2);
+          doc.setFont(undefined,"bold");doc.setFontSize(11);doc.setTextColor(...BRAND.red);
+          doc.text(t.admReportTotalLabel,margin+6,y+2);
+          doc.text(String(totalCount),pageW-margin-2,y+2,{align:"right"});
+          y+=9;
         }
-        y+=6;
+        y+=4;doc.setTextColor(...BRAND.dark);
       }
 
       if(opts.competitors){
         startSection();
         sectionHeader(t.admReportCompetitorsHdr);
-        if(!classNames.length){doc.text(t.admReportNoCompetitors,margin,y);y+=6;}
+        if(!classNames.length){doc.setTextColor(...BRAND.muted);doc.text(t.admReportNoCompetitors,margin,y);y+=6;}
         classNames.forEach(cls=>{
-          ensureSpace(10);
-          doc.setFont(undefined,"bold");doc.setFontSize(11);
-          doc.text(cls,margin,y);y+=6;
-          doc.setFont(undefined,"normal");doc.setFontSize(10);
-          byClass[cls].slice().sort((a,b)=>(a.kartNumber||0)-(b.kartNumber||0)).forEach(u=>{
+          const list=byClass[cls].slice().sort((a,b)=>(a.kartNumber||0)-(b.kartNumber||0));
+          ensureSpace(11);
+          // Colored header bar per class, using the class's own theme color from Admin → Klasser
+          // so the report visually matches the rest of the app instead of looking generic.
+          const clsColor=hexToRgb(state.classRules[cls]?.color);
+          doc.setFillColor(...clsColor);doc.roundedRect(margin,y-5,pageW-2*margin,7.5,1.2,1.2,"F");
+          doc.setFont(undefined,"bold");doc.setFontSize(11);doc.setTextColor(255,255,255);
+          doc.text(cls,margin+3,y);
+          doc.text(`${list.length}`,pageW-margin-3,y,{align:"right"});
+          y+=8;
+          doc.setTextColor(...BRAND.dark);
+          list.forEach((u,i)=>{
             ensureSpace(6);
-            doc.text(`#${u.kartNumber||"?"}   ${u.name}${u.club?"   ("+u.club+")":""}`,margin+2,y);y+=5.5;
+            if(i%2===1){doc.setFillColor(...BRAND.shade);doc.rect(margin,y-4.3,pageW-2*margin,6,"F");}
+            doc.setFont(undefined,"bold");doc.setFontSize(10);
+            doc.text(`#${u.kartNumber||"?"}`,margin+2,y);
+            doc.setFont(undefined,"normal");
+            doc.text(u.name,margin+22,y);
+            if(u.club){doc.setFontSize(9);doc.setTextColor(...BRAND.muted);doc.text(u.club,pageW-margin-2,y,{align:"right"});doc.setFontSize(10);doc.setTextColor(...BRAND.dark);}
+            y+=6;
           });
           y+=4;
         });
@@ -6435,20 +6489,31 @@ function AdminRaceReport({state,dispatch,seriesScope}){
       if(opts.penalties){
         startSection();
         sectionHeader(t.admReportPenaltiesHdr);
-        if(!approvedPenalties.length){doc.text(t.admReportNoPenalties,margin,y);y+=6;}
+        if(!approvedPenalties.length){doc.setTextColor(...BRAND.muted);doc.text(t.admReportNoPenalties,margin,y);y+=6;}
         approvedPenalties.forEach(p=>{
-          ensureSpace(12);
-          doc.setFont(undefined,"bold");doc.setFontSize(10);
-          doc.text(`#${p.kartNo}  ${p.driverName||""}  –  ${p.type}${p.seconds?` +${p.seconds}s`:""}  ·  ${p.class} · ${p.session}`,margin,y);y+=5;
-          doc.setFont(undefined,"normal");doc.setFontSize(9);
+          ensureSpace(13);
+          // Colored left tag matching the same severity colors used in Admin → Straffe, so a report
+          // reader can tell a DSQ from a time penalty at a glance instead of reading every line.
+          const tagColor=p.type==="Diskvalifikation"?BRAND.red:p.type==="Placering sidst"?[136,136,136]:p.type==="Hurtigste tid fjernes"?[125,60,152]:[204,109,0];
+          doc.setFillColor(...tagColor);doc.rect(margin,y-4.2,1.6,10,"F");
+          doc.setFont(undefined,"bold");doc.setFontSize(10);doc.setTextColor(...BRAND.dark);
+          doc.text(`#${p.kartNo}  ${p.driverName||""}`,margin+5,y);
+          doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor(...tagColor);
+          const tagLabel=`${p.type}${p.seconds?` +${p.seconds}s`:""}`;
+          doc.text(tagLabel,pageW-margin,y,{align:"right"});
+          y+=5;
+          doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor(...BRAND.muted);
+          doc.text(`${p.class} · ${p.session}`,margin+5,y);y+=4.5;
           if(p.reason){
-            const lines=doc.splitTextToSize(p.reason,pageW-2*margin-4);
-            lines.forEach(l=>{ensureSpace(5);doc.text(l,margin+2,y);y+=4.5;});
+            doc.setTextColor(...BRAND.dark);
+            const lines=doc.splitTextToSize(p.reason,pageW-2*margin-8);
+            lines.forEach(l=>{ensureSpace(5);doc.text(l,margin+5,y);y+=4.5;});
           }
-          y+=3;
+          y+=3.5;doc.setTextColor(...BRAND.dark);
         });
         y+=4;
       }
+
 
       // Convert the jsPDF text sections into bytes, then merge in existing uploaded PDFs/images.
       const baseBytes=doc.output("arraybuffer");
