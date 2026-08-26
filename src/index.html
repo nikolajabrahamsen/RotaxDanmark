@@ -44,9 +44,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.3/JsBarcode.all.min.js"></script>
-<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:#0D0D0D;font-family:'Barlow',sans-serif;-webkit-font-smoothing:antialiased;overflow:hidden;}
@@ -752,6 +749,39 @@ function attachEventTables(events,penaltyRows,signalRows){
 // result to know what to persist to the imported_users/registrations tables — see stripLocal).
 function genId(){return Date.now()*1000+Math.floor(Math.random()*1000);}
 
+// ── Lazy-loaded libraries ──────────────────────────────────────────────────
+// jsPDF, pdf-lib, and JsBarcode were previously loaded unconditionally on every
+// app open (in the <head>), even though most sessions never touch the race
+// report, tech-control PDFs, or ID-card barcode screens that actually need them.
+// Loading them only the first time they're actually used trims that unnecessary
+// weight off every open for everyone else. Each loader caches its own promise,
+// so calling it again (e.g. generating a second report in the same session)
+// just reuses the already-loaded script instead of re-fetching it.
+const _scriptLoadPromises={};
+function loadScriptOnce(src){
+  if(_scriptLoadPromises[src])return _scriptLoadPromises[src];
+  _scriptLoadPromises[src]=new Promise((resolve,reject)=>{
+    const s=document.createElement("script");
+    s.src=src;
+    s.onload=()=>resolve();
+    s.onerror=()=>{delete _scriptLoadPromises[src];reject(new Error("Kunne ikke indlæse "+src));};
+    document.head.appendChild(s);
+  });
+  return _scriptLoadPromises[src];
+}
+async function ensureJsPDF(){
+  if(!window.jspdf?.jsPDF)await loadScriptOnce("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+  return window.jspdf.jsPDF;
+}
+async function ensurePdfLib(){
+  if(!window.PDFLib)await loadScriptOnce("https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js");
+  return window.PDFLib;
+}
+async function ensureJsBarcode(){
+  if(!window.JsBarcode)await loadScriptOnce("https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.3/JsBarcode.all.min.js");
+  return window.JsBarcode;
+}
+
 // Uploads an image file to Supabase Storage and returns its public URL, instead of embedding it as
 // a base64 data URL directly in app state. This matters a lot: app_state is saved as one JSON blob
 // on every single change (see stripLocal/runSave below), so a base64 logo sitting in state — even
@@ -1241,6 +1271,17 @@ function reducer(state,action){
       const cs={...(state.champStandings||{})};delete cs[action.seriesId];
       return{...state,champStandings:cs};
     }
+    // Background backfill landing for one chunk of older events (see
+    // loadHistoricEventDataInBackground) — replaces registrations/penalties/ready_signals only on
+    // the specific events in this chunk, leaving every other event untouched.
+    case "_MERGE_HISTORIC_EVENT_DATA":{
+      const regByEv={},penByEv={},sigByEv={};
+      (action.regRows||[]).forEach(r=>{(regByEv[r.event_id]=regByEv[r.event_id]||[]).push(rowToRegistration(r));});
+      (action.penRows||[]).forEach(r=>{(penByEv[r.event_id]=penByEv[r.event_id]||[]).push(rowToPenalty(r));});
+      (action.sigRows||[]).forEach(r=>{(sigByEv[r.event_id]=sigByEv[r.event_id]||[]).push(rowToReadySignal(r));});
+      const touched=new Set(action.eventIds);
+      return{...state,events:state.events.map(ev=>touched.has(ev.id)?{...ev,registrations:regByEv[ev.id]||[],penalties:penByEv[ev.id]||[],readySignals:sigByEv[ev.id]||[]}:ev)};
+    }
     case "UPDATE_OFFICIAL_EVENTS":{
       const profiles=(state.authProfiles||[]).map(u=>u.id===action.userId?{...u,approvedEvents:action.events}:u);
       const imported=(state.importedUsers||[]).map(u=>u.id===action.userId?{...u,approvedEvents:action.events}:u);
@@ -1356,6 +1397,7 @@ function roundRectPath(ctx,x,y,w,h,r){
 // Renders a wallet-sized driver ID card (name, ID/license number, class, year, Code128 barcode of the
 // ID number, and the GridControl logo) and triggers a PNG download.
 async function downloadIdCard(u){
+  await ensureJsBarcode();
   if(document.fonts&&document.fonts.ready)await document.fonts.ready;
   const W=1050,H=660;
   const canvas=document.createElement("canvas");
@@ -3050,9 +3092,8 @@ function OfficialTechScreen({state,dispatch}){
   const removePhoto=(uid,idx)=>setPhotos(p=>({...p,[uid]:(p[uid]||[]).filter((_,i)=>i!==idx)}));
 
   // Build a PDF of one driver's images (for email later)
-  const makePdf=(d,imgs)=>{
-    const jsPDF=window.jspdf?.jsPDF;
-    if(!jsPDF){setMsg("PDF-bibliotek ikke indlæst endnu – prøv igen om lidt.");return null;}
+  const makePdf=async(d,imgs)=>{
+    const jsPDF=await ensureJsPDF();
     const pdf=new jsPDF({unit:"mm",format:"a4"});
     const pageW=210,pageH=297,margin=10;
     imgs.forEach((img,i)=>{
@@ -3067,10 +3108,10 @@ function OfficialTechScreen({state,dispatch}){
     });
     return pdf;
   };
-  const downloadPdf=(d)=>{
+  const downloadPdf=async(d)=>{
     const imgs=photos[d.id]||[];
     if(!imgs.length){setMsg("Tag mindst ét billede først.");return;}
-    const pdf=makePdf(d,imgs);
+    const pdf=await makePdf(d,imgs);
     if(pdf)pdf.save(`teknisk-kontrol_${d.kartNumber}_${selClass}.pdf`);
   };
 
@@ -3083,7 +3124,7 @@ function OfficialTechScreen({state,dispatch}){
         const imgs=photos[d.id]||[];
         let pdfUrl=null;
         if(imgs.length&&sb){
-          const pdf=makePdf(d,imgs);
+          const pdf=await makePdf(d,imgs);
           if(pdf){
             const blob=pdf.output("blob");
             const path=`tech-control/${selEv}/${new Date().toISOString().slice(0,10)}_${d.kartNumber}_${Date.now()}.pdf`;
@@ -6453,9 +6494,8 @@ function AdminRaceReport({state,dispatch,seriesScope}){
     if(!ev)return;
     setBusy(true);setMsg("");
     try{
-      const jsPDFCtor=window.jspdf?.jsPDF;
-      const PDFLib=window.PDFLib;
-      if(!jsPDFCtor||!PDFLib){setMsg(t.admReportLibsNotLoaded);setMsgOk(false);setBusy(false);return;}
+      const jsPDFCtor=await ensureJsPDF();
+      const PDFLib=await ensurePdfLib();
       const {PDFDocument}=PDFLib;
 
       const doc=new jsPDFCtor({unit:"mm",format:"a4"});
@@ -8140,6 +8180,41 @@ const stripLocal=(s)=>{
   return result;
 };
 
+// Whether the event_dates table + recent_* RPC functions are confirmed reachable — same "assume
+// present, flip false only on an observed error" pattern as kartRegTableAvailable/
+// standingsTableAvailable above. If they're not set up yet, the initial load below just falls back
+// to fetching registrations/penalties/ready_signals in full (old behavior) rather than erroring.
+let eventDatesRpcAvailable=true;
+
+// Keeps the lightweight event_dates table (just event_id/date/end_date — nothing else) in sync
+// with the current event list, every time app_state saves. This is what lets the initial load
+// filter registrations/penalties/ready_signals down to "recent" events entirely server-side (via
+// the recent_registrations/recent_penalties/recent_ready_signals RPC functions), without ever
+// needing to fetch app_state first just to learn which events are recent — that round-trip is
+// exactly what made an earlier attempt at this slower on mobile instead of faster. Deliberately
+// small and cheap (id+date pairs only) so doing a full sync on every save is simpler and more
+// robust than hooking into every individual event-adding/editing/deleting action.
+let _lastEventDatesSynced=null;
+async function syncEventDatesTable(events){
+  if(!sb)return;
+  const rows=(events||[]).map(ev=>({event_id:ev.id,date:ev.date||null,end_date:ev.endDate||null}));
+  const key=JSON.stringify(rows);
+  if(key===_lastEventDatesSynced)return; // unchanged since last sync — skip the round-trip
+  try{
+    if(rows.length){
+      const {error}=await sb.from("event_dates").upsert(rows,{onConflict:"event_id"});
+      if(error){console.error("Supabase event_dates upsert:",error);return;}
+    }
+    // Remove rows for events that no longer exist (deleted races), so a stale entry never lingers.
+    const ids=rows.map(r=>r.event_id);
+    const del=ids.length
+      ?await sb.from("event_dates").delete().not("event_id","in",`(${ids.join(",")})`)
+      :await sb.from("event_dates").delete().neq("event_id",-1);
+    if(del.error){console.error("Supabase event_dates cleanup:",del.error);return;}
+    _lastEventDatesSynced=key;
+  }catch(e){console.error("Supabase event_dates sync:",e);}
+}
+
 function App(){
   const [state,dispatch]=useReducer(reducer,initialState);
   // wrappedDispatch below is memoized with an empty dependency array (so its identity stays stable),
@@ -8218,31 +8293,58 @@ function App(){
 
       // Fetch app state + the dedicated penalties/ready_signals/registrations/notifications/imported_users/
       // kart_registers/champ_standings tables in parallel (these live separately from the app_state blob –
-      // see stripLocal for why). These used to be split into two sequential stages (app_state first, then
-      // registrations/penalties/ready_signals scoped to recent events only, once we knew which events were
-      // recent) to shrink the payload for clubs with a lot of race history — but that added a full extra
-      // network round-trip before the second stage could even start, and on mobile networks (higher
-      // latency than desktop wifi) that round-trip cost more than the smaller payload saved, making things
-      // slower overall instead of faster. Back to one fully parallel fetch.
+      // see stripLocal for why). penalties/ready_signals/registrations grow with every race ever run, so
+      // instead of always fetching every row from the club's entire history, these three use RPC functions
+      // (recent_penalties/recent_ready_signals/recent_registrations) that filter server-side, by event
+      // date, down to "recent" events (last RECENT_DAYS days, or upcoming) — see event_dates/
+      // syncEventDatesTable above for how the server knows each event's date without needing its own copy
+      // of the JSONB app_state blob. Crucially, the cutoff date needed for this doesn't depend on
+      // app_state at all, so these RPC calls fire in the exact same parallel wave as everything else — no
+      // extra network round-trip. (An earlier attempt at this scoped the fetch using event dates read
+      // *from* app_state, which meant waiting for app_state to resolve first before the scoped queries
+      // could even start — that round-trip cost more on mobile than the smaller payload saved. This
+      // avoids that entirely.) Anything older than the cutoff gets quietly backfilled in the background
+      // afterwards — see loadHistoricEventDataInBackground below.
+      const RECENT_DAYS=30;
+      const cutoffDate=new Date(Date.now()-RECENT_DAYS*24*60*60*1000).toISOString().slice(0,10);
       const [
         {data,error},
-        {data:penaltyRows,error:penaltyErr},
-        {data:signalRows,error:signalErr},
+        penaltyResult,
+        signalResult,
         {data:notifRows,error:notifErr},
-        {data:regRows,error:regErr},
+        regResult,
         {data:importedRows,error:importedErr},
         {data:kartRegRows,error:kartRegErr},
         {data:standingsRows,error:standingsErr},
       ]=await Promise.all([
         sb.from("app_state").select("data").eq("id",1).maybeSingle(),
-        sb.from("penalties").select("*"),
-        sb.from("ready_signals").select("*"),
+        sb.rpc("recent_penalties",{cutoff:cutoffDate}),
+        sb.rpc("recent_ready_signals",{cutoff:cutoffDate}),
         sb.from("notifications").select("*").order("id",{ascending:false}).limit(150),
-        sb.from("registrations").select("*"),
+        sb.rpc("recent_registrations",{cutoff:cutoffDate}),
         sb.from("imported_users").select("*"),
         sb.from("kart_registers").select("*"),
         sb.from("champ_standings").select("*"),
       ]);
+      let penaltyRows=penaltyResult.data,penaltyErr=penaltyResult.error;
+      let signalRows=signalResult.data,signalErr=signalResult.error;
+      let regRows=regResult.data,regErr=regResult.error;
+      // If the event_dates table / recent_* RPC functions haven't been set up yet (SQL migration not
+      // run), fall back to fetching everything unscoped — same as before this feature existed — rather
+      // than silently showing an incomplete app. This fallback only costs extra time during the
+      // (one-time) transition before the migration SQL is run; once it's in place this never triggers.
+      eventDatesRpcAvailable=!(penaltyErr||signalErr||regErr);
+      if(!eventDatesRpcAvailable){
+        console.warn("recent_* RPC functions unavailable — falling back to a full unscoped fetch of penalties/ready_signals/registrations. Run the event_dates/RPC migration SQL to enable faster scoped loading.");
+        const [pr,sr,rr]=await Promise.all([
+          sb.from("penalties").select("*"),
+          sb.from("ready_signals").select("*"),
+          sb.from("registrations").select("*"),
+        ]);
+        penaltyRows=pr.data;penaltyErr=pr.error;
+        signalRows=sr.data;signalErr=sr.error;
+        regRows=rr.data;regErr=rr.error;
+      }
       // Each of these tables' own fetch can fail independently of the main app_state fetch (Supabase
       // doesn't throw on query errors, it just returns {data:null,error:{...}}). Silently treating a
       // failed fetch as "zero rows" would wipe out real data (e.g. all CSV-imported drivers) on every
@@ -8306,6 +8408,24 @@ function App(){
         if(standingsErr)console.warn("champ_standings table unavailable — if this is a fresh setup, run the migration SQL to create it. Championship standings will keep working from local/cached data in the meantime.");
         setSync(importedErr||penaltyErr||signalErr||notifErr||regErr?"error":"synced");
         loadSucceeded=true;
+        // Make sure event_dates has at least a first copy of every event's date — normally kept in
+        // sync by runSave, but that only runs after a *change*; this covers the very first load (or
+        // the first load after the migration SQL is run) before any save has happened yet.
+        syncEventDatesTable(data.data.events||[]);
+        // If the RPC-scoped fetch above actually ran (eventDatesRpcAvailable), some older events were
+        // deliberately left out of the initial load — quietly backfill them now, most-recent-first, a
+        // few seconds after the initial paint so it never competes with the app becoming usable. This
+        // is fully self-healing: no screen needs to know about the split, older events' registrations/
+        // penalties/ready_signals just fill in a little after open, the same way a realtime update
+        // from another device would.
+        if(eventDatesRpcAvailable){
+          const allEvents=data.data.events||[];
+          const historicEventIds=allEvents.filter(ev=>ev.date&&ev.date<cutoffDate).map(ev=>ev.id).sort((a,b)=>{
+            const da=allEvents.find(e=>e.id===a)?.date||"",db=allEvents.find(e=>e.id===b)?.date||"";
+            return db.localeCompare(da);
+          });
+          if(historicEventIds.length)setTimeout(()=>loadHistoricEventDataInBackground(historicEventIds),3000);
+        }
       }else{
         // CRITICAL: this branch is meant only for a genuinely brand-new database with no app_state
         // row at all yet. It must NEVER be able to overwrite a row that already exists — a plain
@@ -8491,6 +8611,33 @@ function App(){
     return()=>{window.removeEventListener("focus",refresh);document.removeEventListener("visibilitychange",refresh);};
   },[]);
 
+  // Quietly backfills registrations/penalties/ready_signals for events older than the "recent"
+  // window fetched at initial load (see the load effect above) — fetched in modest chunks with a
+  // short pause between each, so it never competes with the connection for anything the person is
+  // actually doing right now. Each chunk lands via a dispatch that only touches the specific events
+  // in that chunk, so this is fully self-healing and requires zero changes to any screen: an event's
+  // registrations/penalties/ready_signals just quietly fill in a few seconds after open, the same
+  // way a realtime update from another device would.
+  async function loadHistoricEventDataInBackground(ids){
+    const chunkSize=40;
+    for(let i=0;i<ids.length;i+=chunkSize){
+      const chunk=ids.slice(i,i+chunkSize);
+      try{
+        const [{data:regRows,error:regErr},{data:penRows,error:penErr},{data:sigRows,error:sigErr}]=await Promise.all([
+          sb.from("registrations").select("*").in("event_id",chunk),
+          sb.from("penalties").select("*").in("event_id",chunk),
+          sb.from("ready_signals").select("*").in("event_id",chunk),
+        ]);
+        if(regErr||penErr||sigErr){
+          console.error("Background historic event-data backfill (chunk failed, will not retry this chunk):",regErr||penErr||sigErr);
+        }else{
+          dispatch({type:"_MERGE_HISTORIC_EVENT_DATA",eventIds:chunk,regRows:regRows||[],penRows:penRows||[],sigRows:sigRows||[]});
+        }
+      }catch(e){console.error("Background historic event-data backfill (chunk error):",e);}
+      if(i+chunkSize<ids.length)await new Promise(r=>setTimeout(r,400));
+    }
+  }
+
   // 2) Save app state (debounced) – excl. profiles
   const saveInFlight=useRef(false);
   const saveQueued=useRef(false);
@@ -8521,7 +8668,10 @@ function App(){
     saveInFlight.current=false;
     pendingSave.current=false;
     if(error){console.error("Supabase save:",error);setSync("error");}
-    else{lastSaved.current=json;setSync("synced");}
+    else{
+      lastSaved.current=json;setSync("synced");
+      syncEventDatesTable(rest.events||[]);
+    }
     if(saveQueued.current){saveQueued.current=false;runSave();}
   };
   useEffect(()=>{
