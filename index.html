@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.179";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -2041,13 +2041,33 @@ function NotifPrefsSettings({state,dispatch}){
   const t=useT();
   const u=state.currentUser;
   const prefs=u.notifPrefs||{series:[],classes:[]};
-  const classNames=sortClassesByAge(Object.keys(state.classRules||{}),state.classRules);
+  // Once one or more series are selected, only show classes that actually run in at least one of
+  // them (via classesForSeries — same helper the kart register uses for series scoping), rather
+  // than every class in the app. With no series selected, show everything, same as before.
+  const selectedSeries=prefs.series||[];
+  const classNames=sortClassesByAge(
+    selectedSeries.length
+      ?[...new Set(selectedSeries.flatMap(sid=>classesForSeries(state.classRules,sid)))]
+      :Object.keys(state.classRules||{}),
+    state.classRules
+  );
   const isAll=(prefs.series||[]).length===0&&(prefs.classes||[]).length===0;
 
   const save=(next)=>dispatch({type:"UPDATE_USER",payload:{id:u.id,notifPrefs:next}});
   const toggleSeries=(id)=>{
     const cur=prefs.series||[];
-    save({...prefs,series:cur.includes(id)?cur.filter(x=>x!==id):[...cur,id]});
+    const nextSeries=cur.includes(id)?cur.filter(x=>x!==id):[...cur,id];
+    // If narrowing to specific series, drop any previously-picked classes that no longer belong to
+    // one of them (a class with no seriesIds at all applies to every series, so it always stays
+    // relevant) — otherwise a class could keep filtering in the background after disappearing from
+    // the visible list, with no way to see or undo it.
+    const nextClasses=nextSeries.length
+      ?(prefs.classes||[]).filter(c=>{
+          const ids=(state.classRules[c]?.seriesIds||[]).map(Number);
+          return ids.length===0||nextSeries.some(sid=>ids.includes(Number(sid)));
+        })
+      :(prefs.classes||[]);
+    save({...prefs,series:nextSeries,classes:nextClasses});
   };
   const toggleClass=(cls)=>{
     const cur=prefs.classes||[];
