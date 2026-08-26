@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.184";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -1219,10 +1219,6 @@ function reducer(state,action){
     case "SET_LICENSE_CHECK":return{...state,events:state.events.map(ev=>ev.id===action.eventId?{...ev,licenseChecks:{...(ev.licenseChecks||{}),[(action.userId+"_"+action.field)]:action.value}}:ev)};
     case "SET_FRIDAY_PAID":return{...state,events:state.events.map(ev=>ev.id===action.eventId?{...ev,fridayPaid:{...(ev.fridayPaid||{}),[(action.userId)]:action.value}}:ev)};
     case "SET_CAMPING_PAID":return{...state,events:state.events.map(ev=>ev.id===action.eventId?{...ev,campingPaid:{...(ev.campingPaid||{}),[(action.userId)]:action.value}}:ev)};
-    // Sets .paid directly on the registration itself (not a separate per-event map like Friday/
-    // camping above) — this is the same field CSV import already fills in from the "Betaling
-    // modtaget" column, and that Deltagerliste already shows as a BETALT/UBETALT badge.
-    case "SET_REG_PAID":return{...state,events:state.events.map(ev=>ev.id===action.eventId?{...ev,registrations:(ev.registrations||[]).map(r=>r.userId===action.userId?{...r,paid:action.value}:r)}:ev)};
     case "TOGGLE_EVENT_ROLE_OFFICIAL":{
       // action.role = "noseOfficials" | "weightOfficials", max 3
       return{...state,events:state.events.map(ev=>{
@@ -7565,7 +7561,7 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
   const setCheck=(userId,field,val)=>{dispatch({type:"SET_LICENSE_CHECK",eventId:parseInt(selEv),userId,field,value:val});forceSaveSoon();};
   const setFriday=(userId,val)=>{dispatch({type:"SET_FRIDAY_PAID",eventId:parseInt(selEv),userId,value:val});forceSaveSoon();};
   const setCamping=(userId,val)=>{dispatch({type:"SET_CAMPING_PAID",eventId:parseInt(selEv),userId,value:val});forceSaveSoon();};
-  const setPaid=(userId,val)=>{dispatch({type:"SET_REG_PAID",eventId:parseInt(selEv),userId,value:val});forceSaveSoon();};
+  const setPaid=(userId,val)=>{dispatch({type:"UPDATE_REGISTRATION",eventId:parseInt(selEv),userId,payload:{paid:val}});forceSaveSoon();};
 
   // Always group by each driver's own class — whether showing every class or a specific multi-select
   // subset, each class gets its own section header.
