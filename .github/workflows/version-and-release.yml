@@ -35,19 +35,32 @@ jobs:
           echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Commit ny version
+        id: commit
         run: |
           git config user.name "gridcontrol-bot"
           git config user.email "actions@github.com"
           git add index.html
-          git commit -m "chore: bump version til ${{ steps.bump.outputs.version }} [skip ci]"
-          git push
+          # Hvis det nybyggede index.html er identisk med det der allerede er
+          # committet (fx fordi nogen lige har uploadet en kopi der allerede
+          # matcher), er der reelt intet at committe. Det skal ikke fejle hele
+          # jobbet – bare springe commit/tag/release pænt over.
+          if git diff --cached --quiet; then
+            echo "Ingen ændringer i index.html – springer commit/tag/release over."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "chore: bump version til ${{ steps.bump.outputs.version }} [skip ci]"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Opret git-tag
+        if: steps.commit.outputs.changed == 'true'
         run: |
           git tag ${{ steps.bump.outputs.version }}
           git push origin ${{ steps.bump.outputs.version }}
 
       - name: Opret GitHub Release
+        if: steps.commit.outputs.changed == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.bump.outputs.version }}
