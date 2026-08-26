@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.187";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -828,11 +828,31 @@ function computeImportParticipants(state,action){
 function registrationToRow(eventId,r){
   return {event_id:eventId,user_id:String(r.userId),class:r.class||null,paddock_space:r.paddockSpace||null,
     slicks:r.slicks||[],slick_reserve:r.slickReserve||null,wets:r.wets||[],wet_reserve:r.wetReserve||null,
-    paid:!!r.paid,imported:!!r.imported,import_batch:r.importBatch||null};
+    paid:!!r.paid,imported:!!r.imported,import_batch:r.importBatch||null,
+    license_ok:r.licenseOk??null,friday_paid:r.fridayPaid??null,camping_paid:r.campingPaid??null};
 }
 function rowToRegistration(r){
   return {userId:r.user_id,class:r.class,paddockSpace:r.paddock_space||"",slicks:r.slicks||[],slickReserve:r.slick_reserve||"",
-    wets:r.wets||[],wetReserve:r.wet_reserve||"",paid:!!r.paid,imported:!!r.imported,importBatch:r.import_batch||undefined};
+    wets:r.wets||[],wetReserve:r.wet_reserve||"",paid:!!r.paid,imported:!!r.imported,importBatch:r.import_batch||undefined,
+    // Tri-state on purpose (true/false/undefined) — undefined means "never set on this registration
+    // yet", which lets LicenseControl fall back to the old event-level licenseChecks/fridayPaid/
+    // campingPaid maps for historic data saved before these became per-registration fields.
+    licenseOk:r.license_ok??undefined,fridayPaid:r.friday_paid??undefined,campingPaid:r.camping_paid??undefined};
+}
+// registrations.upsert wrapper that survives the license_ok/friday_paid/camping_paid columns not
+// existing yet (forgetting to run a migration before deploying has bitten us before — see
+// champ_standings) by retrying without them rather than failing the whole registration write.
+async function upsertRegistrationRows(rows,onConflict){
+  const {error}=await sb.from("registrations").upsert(rows,{onConflict});
+  if(error){
+    console.error("Supabase registrations upsert:",error);
+    if(/license_ok|friday_paid|camping_paid/.test(error.message||"")){
+      const strip=({license_ok,friday_paid,camping_paid,...rest})=>rest;
+      const stripped=Array.isArray(rows)?rows.map(strip):strip(rows);
+      const retry=await sb.from("registrations").upsert(stripped,{onConflict});
+      if(retry.error)console.error("Supabase registrations upsert (retry without license/friday/camping cols):",retry.error);
+    }
+  }
 }
 function attachRegistrations(events,regRows){
   const byEv={};
@@ -3820,7 +3840,11 @@ function AdminRegistrations({state,dispatch,seriesScope}){
   const ev=state.events.find(e=>e.id===parseInt(selEv))||state.events[0];
 
   const clubCodeFor=(u)=>u.clubCode||state.clubs?.find(c=>c.name===u.club)?.clubCode||"";
-  const licenseOkFor=(userId)=>!!(ev?.licenseChecks||{})[userId+"_ok"];
+  const licenseOkFor=(userId)=>{
+    const reg=(ev?.registrations||[]).find(r=>r.userId===userId);
+    if(reg?.licenseOk!==undefined)return !!reg.licenseOk;
+    return !!(ev?.licenseChecks||{})[userId+"_ok"];
+  };
 
   const openEditReg=(r,u)=>{
     setEditUserId(r.userId);
@@ -7568,9 +7592,15 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
   // through a whole list quickly then move on — so nudge an immediate save instead of waiting out
   // the generic debounce (same fix already applied to kart-register actions).
   const forceSaveSoon=()=>setTimeout(()=>window.__gcForceSave?.(),50);
-  const setCheck=(userId,field,val)=>{dispatch({type:"SET_LICENSE_CHECK",eventId:parseInt(selEv),userId,field,value:val});forceSaveSoon();};
-  const setFriday=(userId,val)=>{dispatch({type:"SET_FRIDAY_PAID",eventId:parseInt(selEv),userId,value:val});forceSaveSoon();};
-  const setCamping=(userId,val)=>{dispatch({type:"SET_CAMPING_PAID",eventId:parseInt(selEv),userId,value:val});forceSaveSoon();};
+  // License OK / Friday paid / Camping paid now live directly on the registration (same fast,
+  // scoped save path already used for Betalt), instead of the old event-level licenseChecks/
+  // fridayPaid/campingPaid maps — those maps were still part of the big app_state blob, which is
+  // exactly what was making these toggles slow. Old data in those maps still displays correctly
+  // via the fallback below (rowToRegistration's tri-state undefined), it just isn't written to
+  // anymore going forward.
+  const setCheck=(userId,field,val)=>{dispatch({type:"UPDATE_REGISTRATION",eventId:parseInt(selEv),userId,payload:{licenseOk:val}});forceSaveSoon();};
+  const setFriday=(userId,val)=>{dispatch({type:"UPDATE_REGISTRATION",eventId:parseInt(selEv),userId,payload:{fridayPaid:val}});forceSaveSoon();};
+  const setCamping=(userId,val)=>{dispatch({type:"UPDATE_REGISTRATION",eventId:parseInt(selEv),userId,payload:{campingPaid:val}});forceSaveSoon();};
   const setPaid=(userId,val)=>{dispatch({type:"UPDATE_REGISTRATION",eventId:parseInt(selEv),userId,payload:{paid:val}});forceSaveSoon();};
 
   // Always group by each driver's own class — whether showing every class or a specific multi-select
@@ -7582,9 +7612,9 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
     classGroups[cls].push(item);
   });
 
-  const totalOk=filtered.filter(({user})=>checks[user.id+"_ok"]).length;
-  const totalFriday=filtered.filter(({user})=>fridayPaid[user.id]).length;
-  const totalCamping=filtered.filter(({user})=>campingPaid[user.id]).length;
+  const totalOk=filtered.filter(({reg,user})=>reg.licenseOk??checks[user.id+"_ok"]).length;
+  const totalFriday=filtered.filter(({reg,user})=>reg.fridayPaid??fridayPaid[user.id]).length;
+  const totalCamping=filtered.filter(({reg,user})=>reg.campingPaid??campingPaid[user.id]).length;
   const totalAll=filtered.length;
 
   const openEdit=(item)=>{
@@ -7737,15 +7767,15 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
         {Object.keys(classGroups).length>1&&<div style={{display:"flex",alignItems:"center",gap:10,margin:"12px 0 0"}}>
           <div style={{height:1,flex:1,background:C.border}}/>
           <span style={{background:state.classRules[cls]?.color||C.red,color:"#fff",borderRadius:20,padding:"3px 12px",fontSize:11,fontWeight:700,letterSpacing:1,flexShrink:0}}>{cls}</span>
-          <span style={{color:C.textMuted,fontSize:11}}>{items.filter(({user})=>checks[user.id+"_ok"]).length}/{items.length}</span>
+          <span style={{color:C.textMuted,fontSize:11}}>{items.filter(({reg,user})=>reg.licenseOk??checks[user.id+"_ok"]).length}/{items.length}</span>
           <div style={{height:1,flex:1,background:C.border}}/>
         </div>}
 
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderTop:Object.keys(classGroups).length>1?"1px solid "+C.border:"none",borderRadius:Object.keys(classGroups).length>1?"6px":"0 0 6px 6px",overflow:"hidden",marginTop:Object.keys(classGroups).length>1?4:0}}>
           {items.map(({reg,user},idx2)=>{
-            const licOk=!!checks[user.id+"_ok"];
-            const friOk=!!fridayPaid[user.id];
-            const campOk=!!campingPaid[user.id];
+            const licOk=!!(reg.licenseOk??checks[user.id+"_ok"]);
+            const friOk=!!(reg.fridayPaid??fridayPaid[user.id]);
+            const campOk=!!(reg.campingPaid??campingPaid[user.id]);
             const isLast=idx2===items.length-1;
             return <div key={user.id} style={{display:"grid",gridTemplateColumns:licGridCols(hasFriday,hasCamping),alignItems:"center",padding:"10px 14px",borderBottom:isLast?"none":`1px solid ${C.border}`,background:licOk&&reg.paid&&(!hasFriday||friOk)&&(!hasCamping||campOk)?"rgba(0,204,102,0.04)":"transparent",transition:"background 0.2s"}}>
               {/* Kart# og data – klik for at redigere */}
@@ -8085,6 +8115,13 @@ function SyncBadge({status}){
 //   blob, specifically so that many people acting at once (officials reporting from different stations,
 //   or many drivers/parents registering or creating child profiles at the same time) can never silently
 //   overwrite each other's submissions the way a "whole state" save could.
+// Whether the dedicated kart_registers/champ_standings tables are confirmed reachable — set from
+// the initial load (see below). Defaults to true (assume present) so a normal, already-migrated
+// setup behaves exactly as intended from the very first render. Only flips to false if the load
+// actually observes a fetch error for that specific table (most commonly: the SQL migration to
+// create it hasn't been run yet).
+let kartRegTableAvailable=true;
+let standingsTableAvailable=true;
 const stripLocal=(s)=>{
   // kartRegisters and champStandings each live in their own table now, written independently on
   // each action — see wrappedDispatch — exactly like penalties/registrations/notifications/
@@ -8093,7 +8130,14 @@ const stripLocal=(s)=>{
   // e.g. toggling "Licens OK" no longer has to drag an entire season's worth of standings data
   // along with it just to persist one checkbox.
   const {currentUser,lang,users,authProfiles,uiPrefs,notifications,importedUsers,kartRegisters,champStandings,...rest}=s;
-  return {...rest,events:(rest.events||[]).map(({penalties,readySignals,registrations,...ev})=>ev)};
+  const result={...rest,events:(rest.events||[]).map(({penalties,readySignals,registrations,...ev})=>ev)};
+  // Safety net: if the dedicated table isn't confirmed reachable (e.g. this device loaded before
+  // the SQL migration was run), keep carrying this data in the blob as a fallback — so a save in
+  // that window can't silently delete the last copy. Once the table is confirmed present on a
+  // later load, this stops including it here and the blob shrinks back down as intended.
+  if(!kartRegTableAvailable)result.kartRegisters=kartRegisters;
+  if(!standingsTableAvailable)result.champStandings=champStandings;
+  return result;
 };
 
 function App(){
@@ -8207,6 +8251,11 @@ function App(){
       if(importedErr)console.error("Supabase load (imported_users):",importedErr);
       if(kartRegErr)console.error("Supabase load (kart_registers):",kartRegErr);
       if(standingsErr)console.error("Supabase load (champ_standings):",standingsErr);
+      // Set these before anything below calls stripLocal (including the lastSaved.current line
+      // just below), so the very first save after a load with a missing table already has the
+      // fallback active — closing the exact gap that caused a real data-loss incident once before.
+      kartRegTableAvailable=!kartRegErr;
+      standingsTableAvailable=!standingsErr;
       if(error){console.error("Supabase load:",error);setSync("error");}
       else if(data&&data.data){
         const payload={...data.data,
@@ -8565,7 +8614,7 @@ function App(){
     if(action.type==="ADD_MANUAL_DRIVER"){
       const newUser={id:action.driverId,type:"driver",source:"manual",name:action.name,license:action.license||"",transponder:action.transponder||"",kartNumber:action.kartNumber||undefined,class:action.class,phone:action.phone||"",club:action.club||"",country:action.country||"",email:action.email||"",isOfficial:false,approvedEvents:[],licenseValid:action.licenseValid??null};
       sb.from("imported_users").insert(importedUserToRow(newUser)).then(({error})=>{if(error)console.error("Supabase imported_users insert (manual driver):",error);});
-      sb.from("registrations").upsert(registrationToRow(action.eventId,{userId:action.driverId,class:action.class,paddockSpace:"",slicks:[],slickReserve:"",wets:[],wetReserve:"",paid:!!action.paid}),{onConflict:"event_id,user_id"}).then(({error})=>{if(error)console.error("Supabase registration insert (manual driver):",error);});
+      upsertRegistrationRows(registrationToRow(action.eventId,{userId:action.driverId,class:action.class,paddockSpace:"",slicks:[],slickReserve:"",wets:[],wetReserve:"",paid:!!action.paid}),"event_id,user_id");
     }
     if(action.type==="RELEASE_CHILD"){
       // Auth/profiles side is already handled inline where this is dispatched from (ChildManager) –
@@ -8586,7 +8635,7 @@ function App(){
     // ── Registrations: independent insert/upsert per driver, so many people registering for the
     // same race at the same moment can never overwrite each other's sign-ups. ──
     if(action.type==="REGISTER"){
-      sb.from("registrations").upsert(registrationToRow(action.eventId,action.payload),{onConflict:"event_id,user_id"}).then(({error})=>{if(error)console.error("Supabase registration insert:",error);});
+      upsertRegistrationRows(registrationToRow(action.eventId,action.payload),"event_id,user_id");
     }
     if(action.type==="DELETE_REGISTRATION"){
       sb.from("registrations").delete().eq("event_id",action.eventId).eq("user_id",action.userId).then(({error})=>{if(error)console.error("Supabase registration delete:",error);});
@@ -8595,12 +8644,12 @@ function App(){
       const ev=(stateRef.current.events||[]).find(e=>e.id===action.eventId);
       const existing=(ev?.registrations||[]).find(r=>r.userId===action.userId);
       const merged={...(existing||{userId:action.userId}),...action.payload};
-      sb.from("registrations").upsert(registrationToRow(action.eventId,merged),{onConflict:"event_id,user_id"}).then(({error})=>{if(error)console.error("Supabase registration update:",error);});
+      upsertRegistrationRows(registrationToRow(action.eventId,merged),"event_id,user_id");
     }
     if(action.type==="IMPORT_PARTICIPANTS"){
       const {regs,touchedUsers}=action._precomputed;
       if(touchedUsers.length)sb.from("imported_users").upsert(touchedUsers.map(importedUserToRow)).then(({error})=>{if(error)console.error("Supabase imported_users bulk upsert:",error);});
-      if(regs.length)sb.from("registrations").upsert(regs.map(r=>registrationToRow(action.eventId,r)),{onConflict:"event_id,user_id"}).then(({error})=>{if(error)console.error("Supabase registrations bulk upsert:",error);});
+      if(regs.length)upsertRegistrationRows(regs.map(r=>registrationToRow(action.eventId,r)),"event_id,user_id");
     }
     if(action.type==="REMOVE_IMPORT_BATCH"){
       sb.from("imported_users").delete().eq("import_batch",action.batchId).then(({error})=>{if(error)console.error("Supabase imported_users batch delete:",error);});
