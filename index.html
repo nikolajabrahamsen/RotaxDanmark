@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.188";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -1240,6 +1240,17 @@ function reducer(state,action){
     case "_RT_CHAMP_STANDINGS_DELETE":{
       const cs={...(state.champStandings||{})};delete cs[action.seriesId];
       return{...state,champStandings:cs};
+    }
+    // Background backfill landing for one chunk of older events (see
+    // loadHistoricEventDataInBackground) — replaces registrations/penalties/ready_signals only on
+    // the specific events in this chunk, leaving every other event untouched.
+    case "_MERGE_HISTORIC_EVENT_DATA":{
+      const regByEv={},penByEv={},sigByEv={};
+      (action.regRows||[]).forEach(r=>{(regByEv[r.event_id]=regByEv[r.event_id]||[]).push(rowToRegistration(r));});
+      (action.penRows||[]).forEach(r=>{(penByEv[r.event_id]=penByEv[r.event_id]||[]).push(rowToPenalty(r));});
+      (action.sigRows||[]).forEach(r=>{(sigByEv[r.event_id]=sigByEv[r.event_id]||[]).push(rowToReadySignal(r));});
+      const touched=new Set(action.eventIds);
+      return{...state,events:state.events.map(ev=>touched.has(ev.id)?{...ev,registrations:regByEv[ev.id]||[],penalties:penByEv[ev.id]||[],readySignals:sigByEv[ev.id]||[]}:ev)};
     }
     case "UPDATE_OFFICIAL_EVENTS":{
       const profiles=(state.authProfiles||[]).map(u=>u.id===action.userId?{...u,approvedEvents:action.events}:u);
@@ -8216,26 +8227,50 @@ function App(){
       // very next state change.
       let loadSucceeded=false;
 
-      // Fetch app state + the dedicated penalties/ready_signals/registrations/notifications/imported_users/
-      // kart_registers/champ_standings tables in parallel (these live separately from the app_state blob – see stripLocal for why).
+      // Fetch app_state + the tables that don't scale with race history (notifications/imported_users/
+      // kart_registers/champ_standings) in one wave. registrations/penalties/ready_signals are handled
+      // separately below, scoped to recent+upcoming events only — see the big comment there for why.
       const [
         {data,error},
-        {data:penaltyRows,error:penaltyErr},
-        {data:signalRows,error:signalErr},
         {data:notifRows,error:notifErr},
-        {data:regRows,error:regErr},
         {data:importedRows,error:importedErr},
         {data:kartRegRows,error:kartRegErr},
         {data:standingsRows,error:standingsErr},
       ]=await Promise.all([
         sb.from("app_state").select("data").eq("id",1).maybeSingle(),
-        sb.from("penalties").select("*"),
-        sb.from("ready_signals").select("*"),
         sb.from("notifications").select("*").order("id",{ascending:false}).limit(150),
-        sb.from("registrations").select("*"),
         sb.from("imported_users").select("*"),
         sb.from("kart_registers").select("*"),
         sb.from("champ_standings").select("*"),
+      ]);
+      // registrations/penalties/ready_signals grow with every race ever run and were previously
+      // fetched in full, unfiltered, on every single app open — for everyone, drivers included. A
+      // club with a full season of history behind it means this was pulling down thousands of old
+      // rows nobody currently needs, every time. Instead: fetch these fully only for "recent" events
+      // (last RECENT_DAYS days, or upcoming), so the app opens against a small dataset — then quietly
+      // backfill everything older in the background afterwards (see loadHistoricEventDataInBackground
+      // below), most-recent-first, so it's usually already there by the time anyone actually opens an
+      // older race. No screen needs to know about this split; events just fill in as data arrives,
+      // exactly like a realtime update would.
+      const RECENT_DAYS=30;
+      const cutoff=new Date(Date.now()-RECENT_DAYS*24*60*60*1000).toISOString().slice(0,10);
+      const allEvents=data?.data?.events||[];
+      const recentEventIds=allEvents.filter(ev=>!ev.date||ev.date>=cutoff).map(ev=>ev.id);
+      // Oldest-cutoff-first is wrong for a "catch up soon" queue — most recent finished races are far
+      // more likely to still be actively worked on (reports, penalties) than ones from months ago.
+      const historicEventIds=allEvents.filter(ev=>ev.date&&ev.date<cutoff).map(ev=>ev.id).sort((a,b)=>{
+        const da=allEvents.find(e=>e.id===a)?.date||"",db=allEvents.find(e=>e.id===b)?.date||"";
+        return db.localeCompare(da);
+      });
+      const fetchScoped=(table,ids)=>ids.length?sb.from(table).select("*").in("event_id",ids):Promise.resolve({data:[],error:null});
+      const [
+        {data:penaltyRows,error:penaltyErr},
+        {data:signalRows,error:signalErr},
+        {data:regRows,error:regErr},
+      ]=await Promise.all([
+        fetchScoped("penalties",recentEventIds),
+        fetchScoped("ready_signals",recentEventIds),
+        fetchScoped("registrations",recentEventIds),
       ]);
       // Each of these tables' own fetch can fail independently of the main app_state fetch (Supabase
       // doesn't throw on query errors, it just returns {data:null,error:{...}}). Silently treating a
@@ -8300,6 +8335,10 @@ function App(){
         if(standingsErr)console.warn("champ_standings table unavailable — if this is a fresh setup, run the migration SQL to create it. Championship standings will keep working from local/cached data in the meantime.");
         setSync(importedErr||penaltyErr||signalErr||notifErr||regErr?"error":"synced");
         loadSucceeded=true;
+        // Kick off the quiet background backfill for everything older than the recent window
+        // fetched above — most-recent-first, a few seconds after the initial paint so it never
+        // competes with the app actually becoming usable.
+        if(historicEventIds.length)setTimeout(()=>loadHistoricEventDataInBackground(historicEventIds),3000);
       }else{
         // CRITICAL: this branch is meant only for a genuinely brand-new database with no app_state
         // row at all yet. It must NEVER be able to overwrite a row that already exists — a plain
@@ -8484,6 +8523,33 @@ function App(){
     document.addEventListener("visibilitychange",refresh);
     return()=>{window.removeEventListener("focus",refresh);document.removeEventListener("visibilitychange",refresh);};
   },[]);
+
+  // Quietly backfills registrations/penalties/ready_signals for events older than the "recent"
+  // window fetched at initial load (see the load effect below) — fetched in modest chunks with a
+  // short pause between each, so it never competes with the connection for anything the person is
+  // actually doing right now. Each chunk lands via a dispatch that only touches the specific events
+  // in that chunk, so this is fully self-healing and requires zero changes to any screen: an event's
+  // registrations/penalties/ready_signals just quietly fill in a few seconds after open, the same
+  // way a realtime update from another device would.
+  async function loadHistoricEventDataInBackground(ids){
+    const chunkSize=40;
+    for(let i=0;i<ids.length;i+=chunkSize){
+      const chunk=ids.slice(i,i+chunkSize);
+      try{
+        const [{data:regRows,error:regErr},{data:penRows,error:penErr},{data:sigRows,error:sigErr}]=await Promise.all([
+          sb.from("registrations").select("*").in("event_id",chunk),
+          sb.from("penalties").select("*").in("event_id",chunk),
+          sb.from("ready_signals").select("*").in("event_id",chunk),
+        ]);
+        if(regErr||penErr||sigErr){
+          console.error("Background historic event-data backfill (chunk failed, will not retry this chunk):",regErr||penErr||sigErr);
+        }else{
+          dispatch({type:"_MERGE_HISTORIC_EVENT_DATA",eventIds:chunk,regRows:regRows||[],penRows:penRows||[],sigRows:sigRows||[]});
+        }
+      }catch(e){console.error("Background historic event-data backfill (chunk error):",e);}
+      if(i+chunkSize<ids.length)await new Promise(r=>setTimeout(r,400));
+    }
+  }
 
   // 2) Save app state (debounced) – excl. profiles
   const saveInFlight=useRef(false);
