@@ -92,7 +92,7 @@ function useDraft(key,initial){
 
 
 // Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.183";
+const APP_VERSION="v1.0.0";
 
 // Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
@@ -7558,10 +7558,14 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
     .filter(({user})=>user&&(!search||user.name.toLowerCase().includes(search.toLowerCase())||String(user.kartNumber).includes(search)))
     .sort((a,b)=>(a.user.kartNumber||0)-(b.user.kartNumber||0));
 
-  const setCheck=(userId,field,val)=>dispatch({type:"SET_LICENSE_CHECK",eventId:parseInt(selEv),userId,field,value:val});
-  const setFriday=(userId,val)=>dispatch({type:"SET_FRIDAY_PAID",eventId:parseInt(selEv),userId,value:val});
-  const setCamping=(userId,val)=>dispatch({type:"SET_CAMPING_PAID",eventId:parseInt(selEv),userId,value:val});
-  const setPaid=(userId,val)=>dispatch({type:"SET_REG_PAID",eventId:parseInt(selEv),userId,value:val});
+  // These are single discrete taps rather than rapid typing, and admins/officials often tap
+  // through a whole list quickly then move on — so nudge an immediate save instead of waiting out
+  // the generic debounce (same fix already applied to kart-register actions).
+  const forceSaveSoon=()=>setTimeout(()=>window.__gcForceSave?.(),50);
+  const setCheck=(userId,field,val)=>{dispatch({type:"SET_LICENSE_CHECK",eventId:parseInt(selEv),userId,field,value:val});forceSaveSoon();};
+  const setFriday=(userId,val)=>{dispatch({type:"SET_FRIDAY_PAID",eventId:parseInt(selEv),userId,value:val});forceSaveSoon();};
+  const setCamping=(userId,val)=>{dispatch({type:"SET_CAMPING_PAID",eventId:parseInt(selEv),userId,value:val});forceSaveSoon();};
+  const setPaid=(userId,val)=>{dispatch({type:"SET_REG_PAID",eventId:parseInt(selEv),userId,value:val});forceSaveSoon();};
 
   // Always group by each driver's own class — whether showing every class or a specific multi-select
   // subset, each class gets its own section header.
