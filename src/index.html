@@ -7653,6 +7653,7 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
   });
 
   const totalOk=filtered.filter(({reg,user})=>reg.licenseOk??checks[user.id+"_ok"]).length;
+  const totalPaid=filtered.filter(({reg})=>reg.paid).length;
   const totalFriday=filtered.filter(({reg,user})=>reg.fridayPaid??fridayPaid[user.id]).length;
   const totalCamping=filtered.filter(({reg,user})=>reg.campingPaid??campingPaid[user.id]).length;
   const totalAll=filtered.length;
@@ -7737,6 +7738,10 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
           <div style={{background:`${C.green}22`,border:`1px solid ${C.green}44`,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
             <div style={{color:C.green,fontWeight:900,fontSize:18}}>{totalOk}/{totalAll}</div>
             <div style={{color:C.green,fontSize:9,letterSpacing:1}}>{t.admLicenseOk}</div>
+          </div>
+          <div style={{background:`${C.gold}22`,border:`1px solid ${C.gold}44`,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
+            <div style={{color:C.gold,fontWeight:900,fontSize:18}}>{totalPaid}/{totalAll}</div>
+            <div style={{color:C.gold,fontSize:9,letterSpacing:1}}>{t.admPaidBadge}</div>
           </div>
           {hasFriday&&<div style={{background:`${C.blue}22`,border:`1px solid ${C.blue}44`,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
             <div style={{color:C.blue,fontWeight:900,fontSize:18}}>{totalFriday}/{totalAll}</div>
