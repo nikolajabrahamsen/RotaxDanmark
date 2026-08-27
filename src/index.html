@@ -4204,6 +4204,13 @@ function AdminEvents({state,dispatch,seriesScope}){
                 const active=sel.includes(cls);
                 return <button key={cls} onClick={()=>setEditEv(f=>{const cur=f.classes||[];return{...f,classes:active?cur.filter(x=>x!==cls):[...cur,cls]};})} style={{background:active?`${state.classRules[cls]?.color||C.red}33`:C.surface2,border:`1px solid ${active?state.classRules[cls]?.color||C.red:C.border}`,borderRadius:20,padding:"4px 10px",color:active?state.classRules[cls]?.color||C.red:C.textMuted,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>{active?"✓ ":""}{cls}</button>;
               })}
+              {/* Stray entries: class names sitting in this race's own list that don't match any
+                  officially-defined class (typo'd/mismatched imports etc). Not shown by the loop
+                  above at all since it only iterates state.classRules — surfaced here specifically
+                  so they're actually visible and removable, instead of being invisibly stuck. */}
+              {(editEv.classes||[]).filter(c=>!state.classRules[c]).map(cls=>
+                <button key={"stray-"+cls} onClick={()=>setEditEv(f=>({...f,classes:(f.classes||[]).filter(x=>x!==cls)}))} title="Ukendt klasse – findes ikke under Admin → Klasser. Klik for at fjerne." style={{background:`${C.orange}22`,border:`1px dashed ${C.orange}`,borderRadius:20,padding:"4px 10px",color:C.orange,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>⚠ {cls} ✕</button>
+              )}
             </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
