@@ -7695,7 +7695,7 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
   const alreadyRegIds=new Set(regs.map(r=>r.userId));
   const alreadyRegLicenses=new Set(regs.map(r=>{const ru=state.users.find(x=>x.id===r.userId);return(ru?.license||"").trim().toLowerCase();}).filter(Boolean));
   const existingCandidates=state.users.filter(u=>u.type!=="admin"&&!alreadyRegIds.has(u.id)&&!((u.license||"").trim()&&alreadyRegLicenses.has(u.license.trim().toLowerCase())));
-  const eventClasses=ev?.classes||[];
+  const eventClasses=sortClassesByAge(ev?.classes||[],state.classRules);
 
   const addExistingDriver=()=>{
     if(!addExistingId||!addClass)return;
@@ -7703,13 +7703,13 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
     if(candidate&&findDuplicateRegistrationByLicense(ev,candidate,state.users)){setAddErr(t.admDuplicateRegistrationErrorShort);return;}
     setAddErr("");
     dispatch({type:"REGISTER",eventId:ev.id,payload:{userId:addExistingId,class:addClass,paddockSpace:"",slicks:[],slickReserve:"",wets:[],wetReserve:"",paid:false}});
-    setAddMsg(t.admDriverAdded);setAddExistingId("");
+    setAddMsg(t.admDriverAdded);setAddExistingId("");setAddClass("");
     setTimeout(()=>{setAddMsg("");setShowAddDriver(false);},1200);
   };
   const addNewDriver=()=>{
     if(!addForm.name||!addClass)return;
     dispatch({type:"ADD_MANUAL_DRIVER",eventId:ev.id,name:addForm.name,kartNumber:parseInt(addForm.kartNumber)||undefined,license:addForm.license,transponder:addForm.transponder,phone:addForm.phone,club:addForm.club,country:addForm.country,email:addForm.email,class:addClass,paid:false});
-    setAddMsg(t.admDriverAdded);setAddForm({name:"",kartNumber:"",license:"",transponder:"",phone:"",club:"",country:"DK",email:""});
+    setAddMsg(t.admDriverAdded);setAddForm({name:"",kartNumber:"",license:"",transponder:"",phone:"",club:"",country:"DK",email:""});setAddClass("");
     setTimeout(()=>{setAddMsg("");setShowAddDriver(false);},1200);
   };
 
