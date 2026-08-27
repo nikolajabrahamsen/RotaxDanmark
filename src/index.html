@@ -7774,6 +7774,21 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
         </div>
         {addMode==="existing"?<div>
           <Sel label={t.admSelectDriver.replace("...","")} value={addExistingId} onChange={setAddExistingId} options={[{value:"",label:t.admSelectDriver},...existingCandidates.map(u=>({value:String(u.id),label:u.name+(u.license?" ("+u.license+")":"")}))]}/>
+          {addExistingId&&(()=>{
+            const cand=existingCandidates.find(u=>String(u.id)===addExistingId);
+            if(!cand)return null;
+            return <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"10px 12px",marginBottom:10,fontSize:12}}>
+              <div style={{fontWeight:700,color:C.text,marginBottom:4}}>{cand.name}</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"2px 10px",color:C.textMuted}}>
+                {cand.kartNumber&&<div>{t.admFieldKart}: <span style={{color:C.text,fontWeight:600}}>#{cand.kartNumber}</span></div>}
+                {cand.license&&<div>{t.admLicenseNumber}: <span style={{color:C.text,fontWeight:600}}>{cand.license}</span></div>}
+                {cand.transponder&&<div>{t.admFieldTransponder}: <span style={{color:C.text,fontWeight:600}}>{cand.transponder}</span></div>}
+                {cand.club&&<div>{t.admFieldClub}: <span style={{color:C.text,fontWeight:600}}>{cand.club}</span></div>}
+                {cand.phone&&<div>{t.admFieldPhone}: <span style={{color:C.text,fontWeight:600}}>{cand.phone}</span></div>}
+                {cand.email&&<div>{t.email}: <span style={{color:C.text,fontWeight:600}}>{cand.email}</span></div>}
+              </div>
+            </div>;
+          })()}
           <Sel label={t.admClassName.replace("navn","")} value={addClass} onChange={setAddClass} options={[{value:"",label:t.admSelectRaceType.replace("løbstype","klasse")},...eventClasses.map(c=>({value:c,label:c}))]}/>
           <Btn small onClick={addExistingDriver} disabled={!addExistingId||!addClass} style={{width:"100%"}}>{t.admAddDriverManually}</Btn>
         </div>:<div>
