@@ -5128,7 +5128,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
         <Input label={t.admDriverName} value={editForm.driverName} onChange={v=>setEditForm(f=>({...f,driverName:v}))} placeholder={t.admOptional}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        <Sel label={t.admFieldClass} value={editForm.class} onChange={v=>setEditForm(f=>({...f,class:v}))} options={sortClassesByAge(Object.keys(state.classRules),state.classRules)}/>
+        <Sel label={t.admFieldClass} value={editForm.class} onChange={v=>setEditForm(f=>({...f,class:v}))} options={sortClassesByAge(ev?.classes?.length?ev.classes:Object.keys(state.classRules),state.classRules)}/>
         <Sel label={t.admSession} value={editForm.session} onChange={v=>setEditForm(f=>({...f,session:v}))} options={(state.sessions||[]).map(s=>s.name)}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -5165,7 +5165,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
         <Input label={t.admDriverName} value={form.driverName} onChange={v=>setForm(f=>({...f,driverName:v}))} placeholder={t.admOptional}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        <Sel label={t.classLabel} value={form.class} onChange={v=>setForm(f=>({...f,class:v}))} options={sortClassesByAge(Object.keys(state.classRules),state.classRules)}/>
+        <Sel label={t.classLabel} value={form.class} onChange={v=>setForm(f=>({...f,class:v}))} options={sortClassesByAge(ev?.classes?.length?ev.classes:Object.keys(state.classRules),state.classRules)}/>
         <Sel label={t.session} value={form.session} onChange={v=>setForm(f=>({...f,session:v}))} options={(state.sessions||[]).map(s=>s.name)}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
