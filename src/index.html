@@ -7642,6 +7642,9 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
   const setFriday=(userId,val)=>{dispatch({type:"UPDATE_REGISTRATION",eventId:parseInt(selEv),userId,payload:{fridayPaid:val}});forceSaveSoon();};
   const setCamping=(userId,val)=>{dispatch({type:"UPDATE_REGISTRATION",eventId:parseInt(selEv),userId,payload:{campingPaid:val}});forceSaveSoon();};
   const setPaid=(userId,val)=>{dispatch({type:"UPDATE_REGISTRATION",eventId:parseInt(selEv),userId,payload:{paid:val}});forceSaveSoon();};
+  const removeReg=(r,u)=>{
+    if(window.confirm(`${t.admRemoveRegConfirm} ${u?.name||"?"}?`))dispatch({type:"DELETE_REGISTRATION",eventId:parseInt(selEv),userId:r.userId});
+  };
 
   // Always group by each driver's own class — whether showing every class or a specific multi-select
   // subset, each class gets its own section header.
@@ -7681,13 +7684,13 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
     const candidate=state.users.find(x=>x.id===addExistingId);
     if(candidate&&findDuplicateRegistrationByLicense(ev,candidate,state.users)){setAddErr(t.admDuplicateRegistrationErrorShort);return;}
     setAddErr("");
-    dispatch({type:"REGISTER",eventId:ev.id,payload:{userId:addExistingId,class:addClass,paddockSpace:"",slicks:[],slickReserve:"",wets:[],wetReserve:"",paid:true}});
+    dispatch({type:"REGISTER",eventId:ev.id,payload:{userId:addExistingId,class:addClass,paddockSpace:"",slicks:[],slickReserve:"",wets:[],wetReserve:"",paid:false}});
     setAddMsg(t.admDriverAdded);setAddExistingId("");
     setTimeout(()=>{setAddMsg("");setShowAddDriver(false);},1200);
   };
   const addNewDriver=()=>{
     if(!addForm.name||!addClass)return;
-    dispatch({type:"ADD_MANUAL_DRIVER",eventId:ev.id,name:addForm.name,kartNumber:parseInt(addForm.kartNumber)||undefined,license:addForm.license,transponder:addForm.transponder,phone:addForm.phone,club:addForm.club,country:addForm.country,email:addForm.email,class:addClass,paid:true});
+    dispatch({type:"ADD_MANUAL_DRIVER",eventId:ev.id,name:addForm.name,kartNumber:parseInt(addForm.kartNumber)||undefined,license:addForm.license,transponder:addForm.transponder,phone:addForm.phone,club:addForm.club,country:addForm.country,email:addForm.email,class:addClass,paid:false});
     setAddMsg(t.admDriverAdded);setAddForm({name:"",kartNumber:"",license:"",transponder:"",phone:"",club:"",country:"DK",email:""});
     setTimeout(()=>{setAddMsg("");setShowAddDriver(false);},1200);
   };
@@ -7822,7 +7825,8 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
             const friOk=!!(reg.fridayPaid??fridayPaid[user.id]);
             const campOk=!!(reg.campingPaid??campingPaid[user.id]);
             const isLast=idx2===items.length-1;
-            return <div key={user.id} style={{display:"grid",gridTemplateColumns:licGridCols(hasFriday,hasCamping),alignItems:"center",padding:"10px 14px",borderBottom:isLast?"none":`1px solid ${C.border}`,background:licOk&&reg.paid&&(!hasFriday||friOk)&&(!hasCamping||campOk)?"rgba(0,204,102,0.04)":"transparent",transition:"background 0.2s"}}>
+            return <div key={user.id} style={{position:"relative",display:"grid",gridTemplateColumns:licGridCols(hasFriday,hasCamping),alignItems:"center",padding:"10px 14px",borderBottom:isLast?"none":`1px solid ${C.border}`,background:licOk&&reg.paid&&(!hasFriday||friOk)&&(!hasCamping||campOk)?"rgba(0,204,102,0.04)":"transparent",transition:"background 0.2s"}}>
+              <button onClick={()=>removeReg(reg,user)} title={t.admRemoveRegConfirm} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:"50%",background:"none",border:`1px solid ${C.border}`,color:C.textDim,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,padding:0}}>✕</button>
               {/* Kart# og data – klik for at redigere */}
               <div onClick={()=>openEdit({reg,user})} style={{cursor:"pointer"}}>
                 <div style={{fontWeight:900,color:C.text,fontSize:22,fontFamily:"'Barlow Condensed',sans-serif",lineHeight:1.1}}>#{user.kartNumber}</div>
