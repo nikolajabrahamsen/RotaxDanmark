@@ -7622,11 +7622,22 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
   const regs=(ev?.registrations||[]);
   const classes=sortClassesByAge([...new Set(regs.map(r=>r.class))],state.classRules);
 
+  // Kart numbers for classes using the register system live in that register (main, or — if this
+  // race is part of a series with its own register — that series' own register), not necessarily
+  // on the driver's flat profile field. Resolve the same way registration/eligibility checks do
+  // elsewhere, falling back to the profile field for classes with the register turned off.
+  const kartReg=getKartRegister(state,ev?resolveRegisterId(state,ev):"main");
+  const kartNumberFor=(user,cls)=>{
+    if(state.classRules[cls]?.useKartRegister===false)return user.kartNumber;
+    const claimed=myKartInClass(kartReg,cls,user.id);
+    return claimed??user.kartNumber;
+  };
+
   const filtered=regs
     .filter(r=>!selClasses.length||selClasses.includes(r.class))
     .map(r=>{const u=state.users.find(u=>u.id===r.userId);return{reg:r,user:u};})
-    .filter(({user})=>user&&(!search||user.name.toLowerCase().includes(search.toLowerCase())||String(user.kartNumber).includes(search)))
-    .sort((a,b)=>(a.user.kartNumber||0)-(b.user.kartNumber||0));
+    .filter(({reg,user})=>user&&(!search||user.name.toLowerCase().includes(search.toLowerCase())||String(kartNumberFor(user,reg.class)).includes(search)))
+    .sort((a,b)=>(kartNumberFor(a.user,a.reg.class)||0)-(kartNumberFor(b.user,b.reg.class)||0));
 
   // These are single discrete taps rather than rapid typing, and admins/officials often tap
   // through a whole list quickly then move on — so nudge an immediate save instead of waiting out
@@ -7844,7 +7855,7 @@ function LicenseControl({state,dispatch,useGlobalEv=false,seriesScope=null}){
               <button onClick={()=>removeReg(reg,user)} title={t.admRemoveRegConfirm} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:"50%",background:"none",border:`1px solid ${C.border}`,color:C.textDim,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,padding:0}}>✕</button>
               {/* Kart# og data – klik for at redigere */}
               <div onClick={()=>openEdit({reg,user})} style={{cursor:"pointer"}}>
-                <div style={{fontWeight:900,color:C.text,fontSize:22,fontFamily:"'Barlow Condensed',sans-serif",lineHeight:1.1}}>#{user.kartNumber}</div>
+                <div style={{fontWeight:900,color:C.text,fontSize:22,fontFamily:"'Barlow Condensed',sans-serif",lineHeight:1.1}}>#{kartNumberFor(user,reg.class)??"?"}</div>
                 <div style={{fontWeight:700,color:C.text,fontSize:13,marginTop:1}}>{user.name}</div>
                 {/* Licens + transponder – større og mere synlig */}
                 <div style={{display:"flex",flexDirection:"column",gap:2,marginTop:3}}>
