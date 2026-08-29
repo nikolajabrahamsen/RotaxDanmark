@@ -749,6 +749,20 @@ function attachEventTables(events,penaltyRows,signalRows){
 // result to know what to persist to the imported_users/registrations tables — see stripLocal).
 function genId(){return Date.now()*1000+Math.floor(Math.random()*1000);}
 
+// Reactive access to the app's overall sync status ("loading"/"saving"/"synced"/"error"/"local"),
+// broadcast via window events from the App component. Lets a component react to a save happening
+// anywhere in the app, not just one it triggered itself — e.g. blocking a new document upload from
+// starting while some other change is still mid-save.
+function useGcSyncStatus(){
+  const [status,setStatus]=useState(()=>window.__gcSyncStatus||"synced");
+  useEffect(()=>{
+    const handler=(e)=>setStatus(e.detail);
+    window.addEventListener("gc-sync-status",handler);
+    return()=>window.removeEventListener("gc-sync-status",handler);
+  },[]);
+  return status;
+}
+
 // ── Lazy-loaded libraries ──────────────────────────────────────────────────
 // jsPDF, pdf-lib, and JsBarcode were previously loaded unconditionally on every
 // app open (in the <head>), even though most sessions never touch the race
@@ -4945,6 +4959,12 @@ function AdminDocuments({state,dispatch,seriesScope}){
   const [file,setFile]=useState(null);
   const [titleTouched,setTitleTouched]=useState(false);
   const [busy,setBusy]=useState(false);
+  const syncStatus=useGcSyncStatus();
+  // Blocks starting a new upload not just while THIS upload is in progress, but while ANY save is
+  // happening anywhere in the app — closes the same kind of gap as the upload-lock fix, just for
+  // saves triggered by something else entirely (e.g. an admin toggling something on another screen
+  // in another tab) rather than only this component's own upload.
+  const uploadLocked=busy||syncStatus==="saving";
   const [msg,setMsg]=useState("");
   const [dragOver,setDragOver]=useState(false);
   const fileRef=useRef();
@@ -4952,7 +4972,7 @@ function AdminDocuments({state,dispatch,seriesScope}){
   const ev=state.events.find(e=>String(e.id)===String(selEv));
 
   const pickFile=(f)=>{
-    if(busy)return; // don't accept a new file mid-upload — see the drop-zone guard below too
+    if(uploadLocked)return; // don't accept a new file mid-upload, or while any other save is in flight — see the drop-zone guard below too
     setFile(f||null);
     if(!f)return;
     const rawBase=f.name.replace(/\.[^.]+$/,"");
@@ -4971,8 +4991,15 @@ function AdminDocuments({state,dispatch,seriesScope}){
     const detectedType=/\bstart\s?(?:ing\s?)?grid\b/.test(normName)?"Startgrid":"Resultat";
     // Auto-detect class by matching the filename against this race's own classes first, falling
     // back to the full class list in case the race's class list doesn't happen to include it.
-    const detectedClass=raceClasses.find(c=>normName.includes(norm(c)))
-      ||Object.keys(state.classRules).find(c=>normName.includes(norm(c)));
+    // Some class names are substrings of others (e.g. "Rotax DD2" vs "Rotax DD2 Master") — always
+    // prefer the longest/most specific match among everything that matches, rather than whichever
+    // one happens to come first in the list.
+    const bestClassMatch=(list)=>{
+      const matches=list.filter(c=>normName.includes(norm(c)));
+      if(!matches.length)return null;
+      return matches.reduce((longest,c)=>norm(c).length>norm(longest).length?c:longest);
+    };
+    const detectedClass=bestClassMatch(raceClasses)||bestClassMatch(Object.keys(state.classRules));
     if(detectedType||detectedClass){
       setForm(o=>({...o,type:detectedType||o.type,class:detectedClass||o.class}));
     }
@@ -4980,6 +5007,7 @@ function AdminDocuments({state,dispatch,seriesScope}){
 
   const upload=async()=>{
     setMsg("");
+    if(uploadLocked)return; // belt and suspenders — the button/drop-zone are already disabled for this
     if(!file){setMsg(t.admSelectFile);return;}
     if(!form.title){setMsg(t.admTitleMissing);return;}
     if(!selEv){setMsg(t.admSelectRace);return;}
@@ -5037,15 +5065,15 @@ function AdminDocuments({state,dispatch,seriesScope}){
       <Sel label={t.race} value={selEv} onChange={setSelEv} options={eventsInScope(state.events,seriesScope).map(e=>({value:String(e.id),label:e.name}))}/>
       <Sel label={t.admType} value={form.type} onChange={v=>setForm(f=>({...f,type:v}))} options={["Startgrid","Resultat","Opslagstavle"]}/>
       <Sel label={t.admFieldClass} value={form.class} onChange={v=>setForm(f=>({...f,class:v}))} options={["Alle",...raceClasses]}/>
-      <input ref={fileRef} type="file" accept="application/pdf,.pdf,image/*" style={{display:"none"}} disabled={busy} onChange={e=>pickFile(e.target.files[0])}/>
+      <input ref={fileRef} type="file" accept="application/pdf,.pdf,image/*" style={{display:"none"}} disabled={uploadLocked} onChange={e=>pickFile(e.target.files[0])}/>
       <div
-        onClick={()=>{if(!busy)fileRef.current?.click();}}
-        onDragOver={e=>{e.preventDefault();if(!busy)setDragOver(true);}}
+        onClick={()=>{if(!uploadLocked)fileRef.current?.click();}}
+        onDragOver={e=>{e.preventDefault();if(!uploadLocked)setDragOver(true);}}
         onDragLeave={()=>setDragOver(false)}
-        onDrop={e=>{e.preventDefault();setDragOver(false);if(busy)return;const f=e.dataTransfer.files?.[0];if(f)pickFile(f);}}
-        style={{border:`2px dashed ${busy?C.border:dragOver?C.red:file?C.green:C.border}`,borderRadius:6,padding:12,textAlign:"center",marginBottom:10,cursor:busy?"not-allowed":"pointer",background:busy?C.surface2:dragOver?`${C.red}11`:"transparent",opacity:busy?0.6:1,transition:"all 0.15s"}}>
-        <div style={{fontSize:20}}>{busy?"⏳":"📎"}</div>
-        <div style={{color:busy?C.textDim:file?C.green:C.textMuted,fontSize:12,fontWeight:file&&!busy?700:400}}>{busy?t.admUploading:file?file.name:dragOver?t.admDropHere:t.admChoosePdfOrImage}</div>
+        onDrop={e=>{e.preventDefault();setDragOver(false);if(uploadLocked)return;const f=e.dataTransfer.files?.[0];if(f)pickFile(f);}}
+        style={{border:`2px dashed ${uploadLocked?C.border:dragOver?C.red:file?C.green:C.border}`,borderRadius:6,padding:12,textAlign:"center",marginBottom:10,cursor:uploadLocked?"not-allowed":"pointer",background:uploadLocked?C.surface2:dragOver?`${C.red}11`:"transparent",opacity:uploadLocked?0.6:1,transition:"all 0.15s"}}>
+        <div style={{fontSize:20}}>{uploadLocked?"⏳":"📎"}</div>
+        <div style={{color:uploadLocked?C.textDim:file?C.green:C.textMuted,fontSize:12,fontWeight:file&&!uploadLocked?700:400}}>{uploadLocked?t.admUploading:file?file.name:dragOver?t.admDropHere:t.admChoosePdfOrImage}</div>
       </div>
       <div style={{color:C.textDim,fontSize:10,lineHeight:1.5,marginTop:-6,marginBottom:10}}>{t.admFilenameHint}</div>
       <Input label={t.admTitleAutoLabel} value={form.title} onChange={v=>{setTitleTouched(true);setForm(f=>({...f,title:v}));}} placeholder={t.admTitleAutoPlaceholder}/>
@@ -5053,7 +5081,7 @@ function AdminDocuments({state,dispatch,seriesScope}){
         <span style={{color:C.text,fontSize:12,fontWeight:600}}>🔔 Send notifikation {form.class==="Alle"?t.admSendNotifAll:t.admSendNotifTo+form.class}</span>
         <button onClick={()=>setForm(f=>({...f,notify:!f.notify}))} style={{background:form.notify?`${C.green}33`:C.surface2,border:`1px solid ${form.notify?C.green:C.border}`,borderRadius:20,padding:"4px 12px",color:form.notify?C.green:C.textMuted,cursor:"pointer",fontSize:11,fontFamily:"inherit",fontWeight:700}}>{form.notify?t.admYesUpper:t.admNoUpper}</button>
       </div>
-      <Btn onClick={upload} disabled={busy} style={{width:"100%"}}>{busy?t.admUploading:"⬆ UPLOAD"}</Btn>
+      <Btn onClick={upload} disabled={uploadLocked} style={{width:"100%"}}>{uploadLocked?t.admUploading:"⬆ UPLOAD"}</Btn>
     </Card>
     <div style={{color:C.textMuted,fontSize:10,letterSpacing:2,margin:"4px 0 8px"}}>{t.admDocsOnRaceA}{ev?.name?.toUpperCase()||t.admDocsOnRaceB} ({docs.length})</div>
     {docs.length===0&&<div style={{color:C.textDim,fontSize:12}}>{t.admNoDocsYet}</div>}
@@ -8281,6 +8309,13 @@ function App(){
   const stateRef=useRef(state);
   useEffect(()=>{stateRef.current=state;},[state]);
   const [sync,setSync]=useState(sb?"loading":"local");
+  // Broadcasts the sync status globally (window var + event) so components that aren't threaded
+  // with props from here — like AdminDocuments — can react to it too, e.g. blocking a new upload
+  // from starting while an unrelated save is already in flight.
+  useEffect(()=>{
+    window.__gcSyncStatus=sync;
+    window.dispatchEvent(new CustomEvent("gc-sync-status",{detail:sync}));
+  },[sync]);
   const skipNextSave=useRef(true);
   const lastSaved=useRef("");
   const pendingSave=useRef(false);
