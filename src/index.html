@@ -5000,6 +5000,10 @@ function AdminDocuments({state,dispatch,seriesScope}){
       const nextVersion=existingDoc?(existingDoc.version||0)+1:0;
       if(existingDoc)dispatch({type:"REMOVE_EVENT_DOCUMENT",eventId:evId,docId:existingDoc.id});
       dispatch({type:"ADD_EVENT_DOCUMENT",eventId:evId,payload:{id:Date.now(),title:form.title,type:form.type,sessionType:null,class:form.class,time:new Date().toLocaleString("da-DK"),url,version:nextVersion}});
+      // Nudge an immediate save right after — this is a single discrete action (not rapid typing),
+      // and the document itself is already safely up in Storage at this point, so there's no
+      // reason to make the admin wait out the general debounce just to persist the doc's entry.
+      setTimeout(()=>window.__gcForceSave?.(),50);
       if(form.notify){
         const evName=state.events.find(e=>e.id===evId)?.name||"";
         const icon=isBoard?"📌":form.type==="Startgrid"?"🏁":form.type==="Resultat"?"🏆":"📄";
@@ -5056,7 +5060,7 @@ function AdminDocuments({state,dispatch,seriesScope}){
         <div><div style={{fontWeight:700,color:C.text,fontSize:12}}>{d.title}</div><div style={{display:"flex",gap:4,marginTop:3}}><Badge color={d.type==="Startgrid"?C.blue:d.type==="Resultat"?C.gold:C.textMuted} style={{fontSize:9}}>{d.type}</Badge><Badge style={{fontSize:9}}>{d.class}</Badge><Badge color={C.cyan} style={{fontSize:9}}>v{d.version||0}</Badge></div></div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {d.url&&d.url!=="#"&&<a href={d.url} target="_blank" rel="noreferrer" style={{color:C.blue,fontSize:11,fontWeight:700}}>{t.admOpenLink}</a>}
-          <button onClick={()=>{if(confirm(`${t.admDeleteDocConfirmA}"${d.title}"${t.admDeleteDocConfirmB}`))dispatch({type:"REMOVE_EVENT_DOCUMENT",eventId:ev.id,docId:d.id});}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>×</button>
+          <button onClick={()=>{if(confirm(`${t.admDeleteDocConfirmA}"${d.title}"${t.admDeleteDocConfirmB}`)){dispatch({type:"REMOVE_EVENT_DOCUMENT",eventId:ev.id,docId:d.id});setTimeout(()=>window.__gcForceSave?.(),50);}}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>×</button>
         </div>
       </div>
     </Card>)}
