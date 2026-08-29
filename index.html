@@ -66,7 +66,7 @@ select option{background:#232323;color:#f5f5f5;}
 function useDraft(key,initial){const[value,setValue]=useState(initial);const loadedKeyRef=useRef(null);useEffect(()=>{if(loadedKeyRef.current===key)return;loadedKeyRef.current=key;try{const saved=localStorage.getItem(key);setValue(saved?JSON.parse(saved):initial);}catch(e){setValue(initial);}// eslint-disable-next-line
 },[key]);useEffect(()=>{if(loadedKeyRef.current!==key)return;// don't overwrite a draft with the initial value before it's loaded
 try{localStorage.setItem(key,JSON.stringify(value));}catch(e){}},[key,value]);const clearDraft=()=>{try{localStorage.removeItem(key);}catch(e){}};return[value,setValue,clearDraft];}// Version number. Updated automatically by GitHub Action on push to main – do not edit manually.
-const APP_VERSION="v1.0.202";// Feature flags
+const APP_VERSION="v1.0.203";// Feature flags
 // LICENSE_SCAN_ENABLED: shows/hides the "upload license photo for AI verification" button on the Profile
 // screen. Set to true once the feature is ready to go live. The license status card itself (number,
 // approved/not-checked badge, license type from DASU import) still shows either way.
