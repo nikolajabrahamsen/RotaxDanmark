@@ -4952,6 +4952,7 @@ function AdminDocuments({state,dispatch,seriesScope}){
   const ev=state.events.find(e=>String(e.id)===String(selEv));
 
   const pickFile=(f)=>{
+    if(busy)return; // don't accept a new file mid-upload — see the drop-zone guard below too
     setFile(f||null);
     if(!f)return;
     const rawBase=f.name.replace(/\.[^.]+$/,"");
@@ -5000,10 +5001,11 @@ function AdminDocuments({state,dispatch,seriesScope}){
       const nextVersion=existingDoc?(existingDoc.version||0)+1:0;
       if(existingDoc)dispatch({type:"REMOVE_EVENT_DOCUMENT",eventId:evId,docId:existingDoc.id});
       dispatch({type:"ADD_EVENT_DOCUMENT",eventId:evId,payload:{id:Date.now(),title:form.title,type:form.type,sessionType:null,class:form.class,time:new Date().toLocaleString("da-DK"),url,version:nextVersion}});
-      // Nudge an immediate save right after — this is a single discrete action (not rapid typing),
-      // and the document itself is already safely up in Storage at this point, so there's no
-      // reason to make the admin wait out the general debounce just to persist the doc's entry.
-      setTimeout(()=>window.__gcForceSave?.(),50);
+      // Nudge an immediate save and — critically — actually wait for it to settle before releasing
+      // the "uploading" lock below. Just firing it and moving on left a gap where a second upload
+      // could start before the first one's document entry was actually persisted, causing exactly
+      // the kind of mid-air collision reported.
+      if(window.__gcForceSave)await window.__gcForceSave();
       if(form.notify){
         const evName=state.events.find(e=>e.id===evId)?.name||"";
         const icon=isBoard?"📌":form.type==="Startgrid"?"🏁":form.type==="Resultat"?"🏆":"📄";
@@ -5035,15 +5037,15 @@ function AdminDocuments({state,dispatch,seriesScope}){
       <Sel label={t.race} value={selEv} onChange={setSelEv} options={eventsInScope(state.events,seriesScope).map(e=>({value:String(e.id),label:e.name}))}/>
       <Sel label={t.admType} value={form.type} onChange={v=>setForm(f=>({...f,type:v}))} options={["Startgrid","Resultat","Opslagstavle"]}/>
       <Sel label={t.admFieldClass} value={form.class} onChange={v=>setForm(f=>({...f,class:v}))} options={["Alle",...raceClasses]}/>
-      <input ref={fileRef} type="file" accept="application/pdf,.pdf,image/*" style={{display:"none"}} onChange={e=>pickFile(e.target.files[0])}/>
+      <input ref={fileRef} type="file" accept="application/pdf,.pdf,image/*" style={{display:"none"}} disabled={busy} onChange={e=>pickFile(e.target.files[0])}/>
       <div
-        onClick={()=>fileRef.current?.click()}
-        onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+        onClick={()=>{if(!busy)fileRef.current?.click();}}
+        onDragOver={e=>{e.preventDefault();if(!busy)setDragOver(true);}}
         onDragLeave={()=>setDragOver(false)}
-        onDrop={e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files?.[0];if(f)pickFile(f);}}
-        style={{border:`2px dashed ${dragOver?C.red:file?C.green:C.border}`,borderRadius:6,padding:12,textAlign:"center",marginBottom:10,cursor:"pointer",background:dragOver?`${C.red}11`:"transparent",transition:"all 0.15s"}}>
-        <div style={{fontSize:20}}>📎</div>
-        <div style={{color:file?C.green:C.textMuted,fontSize:12,fontWeight:file?700:400}}>{file?file.name:dragOver?t.admDropHere:t.admChoosePdfOrImage}</div>
+        onDrop={e=>{e.preventDefault();setDragOver(false);if(busy)return;const f=e.dataTransfer.files?.[0];if(f)pickFile(f);}}
+        style={{border:`2px dashed ${busy?C.border:dragOver?C.red:file?C.green:C.border}`,borderRadius:6,padding:12,textAlign:"center",marginBottom:10,cursor:busy?"not-allowed":"pointer",background:busy?C.surface2:dragOver?`${C.red}11`:"transparent",opacity:busy?0.6:1,transition:"all 0.15s"}}>
+        <div style={{fontSize:20}}>{busy?"⏳":"📎"}</div>
+        <div style={{color:busy?C.textDim:file?C.green:C.textMuted,fontSize:12,fontWeight:file&&!busy?700:400}}>{busy?t.admUploading:file?file.name:dragOver?t.admDropHere:t.admChoosePdfOrImage}</div>
       </div>
       <div style={{color:C.textDim,fontSize:10,lineHeight:1.5,marginTop:-6,marginBottom:10}}>{t.admFilenameHint}</div>
       <Input label={t.admTitleAutoLabel} value={form.title} onChange={v=>{setTitleTouched(true);setForm(f=>({...f,title:v}));}} placeholder={t.admTitleAutoPlaceholder}/>
@@ -5075,7 +5077,13 @@ function AdminPenalties({state,dispatch,seriesScope}){
   const [cf,setCf]=useState("Alle");const [sf,setSf]=useState("Alle");
   const [showApproved,setShowApproved]=useState(false);
   const [penTab,setPenTab]=useState("new"); // "new" | "list"
-  const [form,setForm]=useDraft(`gc_draft_adminpenalty_${selEv}`,{kartNo:"",driverName:"",class:"Rotax Junior",session:"Heat 1",type:"Tidsstraf",seconds:"5",reason:""});
+  const [form,setForm]=useDraft(`gc_draft_adminpenalty_${selEv}`,{kartNo:"",driverName:"",class:"Rotax Junior",session:"Heat 1",type:"Tidsstraf",seconds:"5",reason:"",penaltyId:"",reasonId:"",customReason:""});
+  // Same predefined type/reason lists the official reporting screen uses (with the same fallback
+  // defaults), so an admin picks from the same consistent set instead of a separate hardcoded list
+  // that let type and seconds drift out of sync with each other (e.g. picking "Advarsel" while an
+  // old "5" was still sitting in a separate seconds field).
+  const penaltyTypes=state.penaltyTypes||[{id:1,label:"Tidsstraf +3 sek",type:"Tidsstraf",seconds:3},{id:2,label:"Tidsstraf +5 sek",type:"Tidsstraf",seconds:5},{id:3,label:"Tidsstraf +10 sek",type:"Tidsstraf",seconds:10},{id:4,label:"Advarsel",type:"Advarsel",seconds:0},{id:5,label:"Sortflag",type:"Sortflag",seconds:0},{id:6,label:"Diskvalifikation",type:"Diskvalifikation",seconds:0},{id:7,label:"Placering sidst",type:"Placering sidst",seconds:0}];
+  const reasonTexts=state.reasonTexts||[];
   const [editP,setEditP]=useState(null);
   const [editForm,setEditForm]=useState({});
   const [prevCount,setPrevCount]=useState(0);
@@ -5108,8 +5116,10 @@ function AdminPenalties({state,dispatch,seriesScope}){
 
   const add=()=>{
     if(!form.kartNo)return;
-    dispatch({type:"ADD_PENALTY",eventId:parseInt(selEv),payload:{...form,kartNo:parseInt(form.kartNo)||0,seconds:parseInt(form.seconds)||0,time:new Date().toLocaleString("da-DK"),source:"manual",approved:true,reportedBy:state.currentUser?.name}});
-    setForm(f=>({...f,driverName:"",kartNo:"",reason:""}));
+    const rt=reasonTexts.find(r=>String(r.id)===String(form.reasonId));
+    const combinedReason=[rt?.text,form.customReason.trim()].filter(Boolean).join(" – ");
+    dispatch({type:"ADD_PENALTY",eventId:parseInt(selEv),payload:{kartNo:parseInt(form.kartNo)||0,driverName:form.driverName,class:form.class,session:form.session,type:form.type,seconds:parseInt(form.seconds)||0,reason:combinedReason,time:new Date().toLocaleString("da-DK"),source:"manual",approved:true,reportedBy:state.currentUser?.name}});
+    setForm(f=>({...f,driverName:"",kartNo:"",reason:"",reasonId:"",customReason:""}));
   };
 
   const approvePenalty=p=>dispatch({type:"UPDATE_PENALTY",eventId:parseInt(selEv),penaltyId:p.id,penaltyIdx:allP.indexOf(p),payload:{...p,approved:true}});
@@ -5172,11 +5182,14 @@ function AdminPenalties({state,dispatch,seriesScope}){
         <Sel label={t.classLabel} value={form.class} onChange={v=>setForm(f=>({...f,class:v}))} options={sortClassesByAge(ev?.classes?.length?ev.classes:Object.keys(state.classRules),state.classRules)}/>
         <Sel label={t.session} value={form.session} onChange={v=>setForm(f=>({...f,session:v}))} options={(state.sessions||[]).map(s=>s.name)}/>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        <Sel label={t.admPenaltyType} value={form.type} onChange={v=>setForm(f=>({...f,type:v}))} options={["Tidsstraf","Advarsel","Sortflag","Diskvalifikation","Placering sidst","Hurtigste tid fjernes"]}/>
-        {form.type==="Tidsstraf"&&<Input label={t.admSeconds} value={form.seconds} onChange={v=>setForm(f=>({...f,seconds:v}))} placeholder="5"/>}
+      <div style={{marginBottom:10}}>
+        <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>{t.penaltyType}</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {penaltyTypes.map(pt=><button key={pt.id} onClick={()=>setForm(f=>({...f,penaltyId:String(pt.id),type:pt.type,seconds:String(pt.seconds)}))} style={{background:form.penaltyId===String(pt.id)?`${C.orange}33`:C.surface2,border:`1px solid ${form.penaltyId===String(pt.id)?C.orange:C.border}`,borderRadius:20,padding:"5px 12px",fontSize:11,cursor:"pointer",color:form.penaltyId===String(pt.id)?C.orange:C.textMuted,fontWeight:form.penaltyId===String(pt.id)?700:400,fontFamily:"inherit"}}>{pt.label}</button>)}
+        </div>
       </div>
-      <Input label={t.admReason} value={form.reason} onChange={v=>setForm(f=>({...f,reason:v}))} placeholder={t.admReasonOptional}/>
+      <Sel label={t.reason} value={form.reasonId} onChange={v=>setForm(f=>({...f,reasonId:v}))} options={[{value:"",label:t.chooseReason},...reasonTexts.map(r=>({value:String(r.id),label:r.text}))]}/>
+      <Input label={t.extraText+" ("+t.optional+")"} value={form.customReason} onChange={v=>setForm(f=>({...f,customReason:v}))} placeholder={t.addDetails}/>
       <Btn onClick={add} style={{width:"100%"}} variant="secondary" disabled={!form.kartNo}>{t.admAddPenaltyBtn}</Btn>
     </Card>
     </>}
@@ -8737,10 +8750,23 @@ function App(){
   // below, which browsers/PWA shells don't always honor consistently) — after calling it, the sync
   // indicator turns "Gemmer..." almost immediately instead of after the usual 300ms debounce.
   useEffect(()=>{
-    window.__gcForceSave=()=>{
+    // Callers can await this to know the save has genuinely settled (not just been kicked off) —
+    // used by things like the document uploader, which needs to keep its "uploading" lock up until
+    // the new document is actually safely persisted, not just until the local dispatch fires.
+    // Polls saveInFlight/saveQueued rather than restructuring runSave's own chaining logic, since
+    // those two refs are already the authoritative source of truth for "is a save in progress".
+    const waitForSaveIdle=()=>new Promise(resolve=>{
+      const check=()=>{
+        if(!saveInFlight.current&&!saveQueued.current)resolve();
+        else setTimeout(check,50);
+      };
+      check();
+    });
+    window.__gcForceSave=async()=>{
       if(!sb||!loaded.current)return;
-      if(saveInFlight.current){saveQueued.current=true;return;}
-      runSave();
+      if(saveInFlight.current)saveQueued.current=true;
+      else runSave();
+      await waitForSaveIdle();
     };
     return()=>{delete window.__gcForceSave;};
   },[]);
