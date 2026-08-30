@@ -5114,6 +5114,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
   const selEv=getAdminSelEv(state,scopedEvs);
   const setSelEv=v=>setAdminSelEv(dispatch,v);
   const [cf,setCf]=useState("Alle");const [sf,setSf]=useState("Alle");
+  const [penSearch,setPenSearch]=useState("");
   const [showApproved,setShowApproved]=useState(false);
   const [penTab,setPenTab]=useState("new"); // "new" | "list"
   const [form,setForm]=useDraft(`gc_draft_adminpenalty_${selEv}`,{kartNo:"",driverName:"",class:"Rotax Junior",session:"Heat 1",type:"Tidsstraf",seconds:"5",reason:"",penaltyId:"",reasonId:"",customReason:""});
@@ -5146,7 +5147,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
   const shown=showApproved?approved:pending;
   const classes=["Alle",...new Set(allP.map(p=>p.class))];
   const sessions=["Alle",...new Set(allP.map(p=>p.session).filter(Boolean))];
-  const filtered=shown.filter(p=>(cf==="Alle"||p.class===cf)&&(sf==="Alle"||p.session===sf));
+  const filtered=shown.filter(p=>(cf==="Alle"||p.class===cf)&&(sf==="Alle"||p.session===sf)&&(!penSearch.trim()||(p.driverName||"").toLowerCase().includes(penSearch.trim().toLowerCase())||String(p.kartNo||"").includes(penSearch.trim())));
   // If a penalty came in with only a kart # and class (e.g. auto-generated from a station report),
   // look up the registered driver's name to display instead of leaving it blank.
   const nameForPenalty=(p)=>p.driverName||findDriverNameByKart(state,ev,parseInt(p.kartNo),p.class);
@@ -5154,11 +5155,11 @@ function AdminPenalties({state,dispatch,seriesScope}){
   useEffect(()=>{if(allP.length>prevCount&&prevCount>0){setNewAlert(true);setTimeout(()=>setNewAlert(false),5000);}setPrevCount(allP.length);},[allP.length]);
 
   const add=()=>{
-    if(!form.kartNo)return;
+    if(!form.kartNo||!form.class)return;
     const rt=reasonTexts.find(r=>String(r.id)===String(form.reasonId));
     const combinedReason=[rt?.text,form.customReason.trim()].filter(Boolean).join(" – ");
     dispatch({type:"ADD_PENALTY",eventId:parseInt(selEv),payload:{kartNo:parseInt(form.kartNo)||0,driverName:form.driverName,class:form.class,session:form.session,type:form.type,seconds:parseInt(form.seconds)||0,reason:combinedReason,time:new Date().toLocaleString("da-DK"),source:"manual",approved:true,reportedBy:state.currentUser?.name}});
-    setForm(f=>({...f,driverName:"",kartNo:"",reason:"",reasonId:"",customReason:""}));
+    setForm(f=>({...f,driverName:"",kartNo:"",reason:"",reasonId:"",customReason:"",class:""}));
   };
 
   const approvePenalty=p=>dispatch({type:"UPDATE_PENALTY",eventId:parseInt(selEv),penaltyId:p.id,penaltyIdx:allP.indexOf(p),payload:{...p,approved:true}});
@@ -5218,7 +5219,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
         <Input label={t.admDriverName} value={form.driverName} onChange={v=>setForm(f=>({...f,driverName:v}))} placeholder={t.admOptional}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        <Sel label={t.classLabel} value={form.class} onChange={v=>setForm(f=>({...f,class:v}))} options={sortClassesByAge(ev?.classes?.length?ev.classes:Object.keys(state.classRules),state.classRules)}/>
+        <Sel label={t.classLabel} value={form.class} onChange={v=>setForm(f=>({...f,class:v}))} options={[{value:"",label:t.admSelectRaceType.replace("løbstype","klasse")},...sortClassesByAge(ev?.classes?.length?ev.classes:Object.keys(state.classRules),state.classRules)]}/>
         <Sel label={t.session} value={form.session} onChange={v=>setForm(f=>({...f,session:v}))} options={(state.sessions||[]).map(s=>s.name)}/>
       </div>
       <div style={{marginBottom:10}}>
@@ -5229,7 +5230,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
       </div>
       <Sel label={t.reason} value={form.reasonId} onChange={v=>setForm(f=>({...f,reasonId:v}))} options={[{value:"",label:t.chooseReason},...reasonTexts.map(r=>({value:String(r.id),label:r.text}))]}/>
       <Input label={t.extraText+" ("+t.optional+")"} value={form.customReason} onChange={v=>setForm(f=>({...f,customReason:v}))} placeholder={t.addDetails}/>
-      <Btn onClick={add} style={{width:"100%"}} variant="secondary" disabled={!form.kartNo}>{t.admAddPenaltyBtn}</Btn>
+      <Btn onClick={add} style={{width:"100%"}} variant="secondary" disabled={!form.kartNo||!form.class}>{t.admAddPenaltyBtn}</Btn>
     </Card>
     </>}
     {penTab==="list"&&<>
@@ -5298,6 +5299,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
     })()}
     <div style={{display:"flex",gap:5,overflowX:"auto",marginBottom:5}}>{classes.map((cl,ci)=><button key={ci+"_"+cl} onClick={()=>setCf(cl)} style={{background:cf===cl?C.orange:C.surface2,color:cf===cl?"#fff":C.textMuted,border:`1px solid ${cf===cl?C.orange:C.border}`,borderRadius:20,padding:"3px 10px",fontSize:10,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{cl}</button>)}</div>
     <div style={{display:"flex",gap:5,overflowX:"auto",marginBottom:8}}>{sessions.map(s=><button key={s} onClick={()=>setSf(s)} style={{background:sf===s?C.blue:C.surface2,color:sf===s?"#fff":C.textMuted,border:`1px solid ${sf===s?C.blue:C.border}`,borderRadius:20,padding:"3px 10px",fontSize:10,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{s}</button>)}</div>
+    <input value={penSearch} onChange={e=>setPenSearch(e.target.value)} placeholder={t.admSearchNameOrKart} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:13,boxSizing:"border-box",fontFamily:"inherit",marginBottom:10}}/>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
       <span style={{color:C.textMuted,fontSize:11}}>{filtered.length}{t.admPenaltiesCount}</span>
       <Btn small variant="secondary" onClick={doExport}>CSV</Btn>
