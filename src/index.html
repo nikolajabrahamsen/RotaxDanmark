@@ -330,7 +330,7 @@ const T={
     // Documents
     startgrid:"Startgrid",result:"Resultat",noticeboard:"Opslagstavle",noDocuments:"Ingen dokumenter",
     // Championship
-    raceSeries:"Løbsserie",noSeries:"Ingen løbsserier oprettet endnu",noStandings:"Ingen mesterskabsstilling for denne serie endnu.",importCsvHint:"Importér CSV under Admin → Mskb.",swipeForRounds:"Træk til siden for at se alle afdelinger →",total:"Total",withDrop:"M. fratræk",colName:"Navn",round:"Afd.",
+    raceSeries:"Løbsserie",noSeries:"Ingen løbsserier oprettet endnu",noStandings:"Ingen mesterskabsstilling for denne serie endnu.",importCsvHint:"Importér CSV under Admin → Mskb.",swipeForRounds:"Træk til siden for at se alle afdelinger →",total:"Total",withDrop:"M. fratræk",colName:"Navn",round:"Afd.",droppedLegend:"Gennemstreget = fratrukket (dårligste resultat i den kategori)",
     // Regulations
     rulesTitle:"Reglementer",
     // Profile
@@ -362,7 +362,7 @@ const T={
     penaltiesSub:"Live penalty list",noPenalties:"No penalties",
     noNotifications:"No notifications",
     startgrid:"Startgrid",result:"Result",noticeboard:"Noticeboard",noDocuments:"No documents",
-    raceSeries:"Race series",noSeries:"No race series created yet",noStandings:"No championship standings for this series yet.",importCsvHint:"Import CSV under Admin → Champ.",swipeForRounds:"Swipe sideways to see all rounds →",total:"Total",withDrop:"W. drop",colName:"Name",round:"Rd.",
+    raceSeries:"Race series",noSeries:"No race series created yet",noStandings:"No championship standings for this series yet.",importCsvHint:"Import CSV under Admin → Champ.",swipeForRounds:"Swipe sideways to see all rounds →",total:"Total",withDrop:"W. drop",colName:"Name",round:"Rd.",droppedLegend:"Struck through = dropped (worst result in that category)",
     rulesTitle:"Rules & regulations",
     officialRole:"Official role",officialRoleSub:"Enable to participate as an official",active:"Active",inactive:"Inactive",kartingLicense:"Karting license",noLicense:"No license",approved:"Approved",uploadLicense:"Upload license image",licenseAiHint:"AI verification via camera",myInfo:"My information",addDobHint:"Add your date of birth so you can pick a kart number in your class.",myDrivers:"My drivers",addDriver:"Add driver",linked:"Linked",releaseToOwn:"Release to own profile",officialApprovedFor:"Official – approved for",country:"Country",dob:"Date of birth",license:"License",transponder:"Transponder",analyzing:"Analyzing...",
     weightSub:"Official – underweight reporting",noseSub:"Official – pushed front fairing (+5 sec, qual: remove fastest)",reportingSub:"Video, Track & Tech",onlyOfficials:"Only visible to officials & admin",notAssignedWeight:"You are not assigned weight reporting for this race.",notAssignedNose:"You are not assigned front fairing reporting for this race.",contactAdmin:"Contact admin if this is a mistake.",noDriversClass:"No drivers found for this class",driver:"Driver",underweight:"UNDERWEIGHT",pushedNose:"PUSHED FRONT FAIRING",addPenalty:"Add penalty",awaitingApproval:"awaiting admin approval",reason:"Reason",chooseReason:"Choose reason...",extraText:"Additional text",optional:"optional",addDetails:"Add more details...",penaltyType:"Penalty type",addToList:"Add to list",checklist:"Checklist",ok:"OK",fault:"Fault",comments:"Comments...",photoRequired:"Photo required",reportSend:"REPORT & SEND READY SIGNAL",takePhoto:"Take photo",newReport:"New report",readySignalSent:"Ready signal sent to timing!",
@@ -2546,7 +2546,8 @@ function StandingsScreen({state,dispatch}){
               <td style={{padding:"8px",fontWeight:700,color:C.text,whiteSpace:"nowrap"}}>{r.name}</td>
               {rounds.map(rn=>SEGS.map(([k])=>{
                 const v=r.segs[rn]?.[k];
-                return <td key={rn+k} style={{padding:"8px 5px",color:v?C.textMuted:C.textDim,textAlign:"center",fontSize:11,borderLeft:k==="kval"?`1px solid ${C.border}`:"none"}}>{v||"–"}</td>;
+                const dropped=!!r.segs[rn]?.dropped?.[k];
+                return <td key={rn+k} style={{padding:"8px 5px",color:dropped?C.textDim:v?C.textMuted:C.textDim,textDecoration:dropped?"line-through":"none",opacity:dropped?0.6:1,textAlign:"center",fontSize:11,borderLeft:k==="kval"?`1px solid ${C.border}`:"none"}}>{v||"–"}</td>;
               }))}
               <td style={{padding:"8px",fontWeight:700,color:C.text,textAlign:"right",borderLeft:`1px solid ${C.border}`}}>{r.total}</td>
               {hasDrop&&<td style={{padding:"8px",fontWeight:900,color:C.red,textAlign:"right",fontSize:13}}>{r.drop}</td>}
@@ -2555,6 +2556,8 @@ function StandingsScreen({state,dispatch}){
         </div>
       </Card>
       <div style={{color:C.textDim,fontSize:10,marginTop:8,textAlign:"center"}}>{t.swipeForRounds}</div>
+      {rows.some(r=>Object.values(r.segs||{}).some(s=>s.dropped&&Object.values(s.dropped).some(Boolean)))&&
+        <div style={{color:C.textDim,fontSize:10,marginTop:4,textAlign:"center"}}>{t.droppedLegend}</div>}
     </div>:pdf?<div>
       <Card style={{borderLeft:`3px solid ${C.red}`,padding:"12px 14px"}}>
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
@@ -7245,13 +7248,20 @@ function parseStandingsHtmlBlock(block,t){
     const name=(tds[2].textContent||"").trim();
     if(!name)return;
     const segs={};
+    // Cells the calculation tool struck through (style="text-decoration:line-through...") are the
+    // scores it excluded from the "Med fratræk" total for this driver — capture that per segment
+    // so the app can grey them out the same way, instead of just showing the raw numbers uniformly
+    // (which is all a CSV export can carry, since it has no styling information at all).
+    const isDropped=(td)=>!!td&&/line-through/.test(td.getAttribute("style")||"");
     rounds.forEach((rn,ri)=>{
       const base=3+ri*4;
+      const kvalTd=tds[base],heatsTd=tds[base+1],preTd=tds[base+2],finaleTd=tds[base+3];
       segs[rn]={
-        kval:(tds[base]?.textContent||"").trim(),
-        heats:(tds[base+1]?.textContent||"").trim(),
-        pre:(tds[base+2]?.textContent||"").trim(),
-        finale:(tds[base+3]?.textContent||"").trim(),
+        kval:(kvalTd?.textContent||"").trim(),
+        heats:(heatsTd?.textContent||"").trim(),
+        pre:(preTd?.textContent||"").trim(),
+        finale:(finaleTd?.textContent||"").trim(),
+        dropped:{kval:isDropped(kvalTd),heats:isDropped(heatsTd),pre:isDropped(preTd),finale:isDropped(finaleTd)},
       };
     });
     const totalIdx=3+rounds.length*4;
