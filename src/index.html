@@ -6992,9 +6992,19 @@ function AdminStandings({state,dispatch,seriesScope}){
       const reader=new FileReader();
       reader.onload=()=>{
         if(isHtml){
-          const p=parseStandingsHtml(reader.result,file.name,t);
-          if(p.error)errors.push(file.name+": "+p.error);
-          else results.push({name:p.className,rounds:p.rounds,hasDrop:p.hasDrop,data:{rounds:p.rounds,hasDrop:p.hasDrop,rows:p.rows}});
+          // Same distinction as the CSV branch below: an "export all classes" HTML file has
+          // multiple .page-block sections (one per class); a single-class export has just one.
+          let blockCount=1;
+          try{blockCount=new DOMParser().parseFromString(reader.result,"text/html").querySelectorAll(".page-block").length||1;}catch(e){}
+          if(blockCount>1){
+            const multi=parseMultiClassStandingsHtml(reader.result,t);
+            multi.errors.forEach(e=>errors.push(file.name+" – "+e));
+            multi.classes.forEach(p=>results.push({name:p.className,rounds:p.rounds,hasDrop:p.hasDrop,data:{rounds:p.rounds,hasDrop:p.hasDrop,rows:p.rows}}));
+          }else{
+            const p=parseStandingsHtml(reader.result,file.name,t);
+            if(p.error)errors.push(file.name+": "+p.error);
+            else results.push({name:p.className,rounds:p.rounds,hasDrop:p.hasDrop,data:{rounds:p.rounds,hasDrop:p.hasDrop,rows:p.rows}});
+          }
         }else{
           // A single-class export starts directly with the header row ("Pl.,Nr.,..."); a
           // multi-class "export all classes" file starts with a bare class-name line instead.
@@ -7208,6 +7218,11 @@ function parseStandingsHtml(htmlText,fileName,t){
   try{doc=new DOMParser().parseFromString(htmlText,"text/html");}
   catch(e){return{error:t?t.admUnknownCsvFormat:"Ukendt format"};}
   const block=doc.querySelector(".page-block")||doc.body;
+  return parseStandingsHtmlBlock(block,t);
+}
+// Extracts one class's standings from a single .page-block (or the whole document, for a
+// single-class export that has no .page-block wrapper at all).
+function parseStandingsHtmlBlock(block,t){
   const h2=block.querySelector(".class-header h2");
   let className=h2?h2.textContent.trim():"";
   if(!className)className=t?t.admUnknownClass:"Ukendt klasse";
@@ -7246,6 +7261,23 @@ function parseStandingsHtml(htmlText,fileName,t){
   });
   if(!rows.length)return{error:t?t.admNoDataRows:"Filen indeholder ingen datarækker"};
   return{error:null,className,rounds,hasDrop,rows};
+}
+// Parses an HTML export containing MULTIPLE classes, one .page-block per class (the calculation
+// tool's "export all classes" option, e.g. "RMC_DK_2026_alle_klasser.html") — mirrors
+// parseMultiClassStandingsCsv's shape ({classes:[...],errors:[...]}) so the import UI can treat
+// both formats identically once parsed.
+function parseMultiClassStandingsHtml(htmlText,t){
+  let doc;
+  try{doc=new DOMParser().parseFromString(htmlText,"text/html");}
+  catch(e){return{classes:[],errors:[t?t.admUnknownCsvFormat:"Ukendt format"]};}
+  const blocks=doc.querySelectorAll(".page-block");
+  const classes=[];const errors=[];
+  (blocks.length?Array.from(blocks):[doc.body]).forEach(block=>{
+    const result=parseStandingsHtmlBlock(block,t);
+    if(result.error)errors.push(result.error);
+    else classes.push(result);
+  });
+  return{classes,errors};
 }
 
 
