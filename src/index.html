@@ -2844,6 +2844,7 @@ function OfficialWeightScreen({state,dispatch}){
   const classKey=selClasses.slice().sort().join("+");
   const [flags,setFlags,clearFlagsDraft]=useDraft(`gc_draft_weight_${selEv}_${classKey}_${selSession}`,{});
   const [done,setDone]=useState(false);
+  const [doneClasses,setDoneClasses]=useState([]);
   const toggle=(uid)=>setFlags(f=>({...f,[uid]:{...f[uid],weight:!f[uid]?.weight}}));
   // Remember selection across page visits
   useEffect(()=>{dispatch({type:"SET_UI_PREF",key:"weightScreen",value:{evId:selEv,classes:selClasses,session:selSession}});dispatch({type:"SET_UI_PREF",key:"selectedRace",value:String(selEv)});},[selEv,classKey,selSession]);
@@ -2859,12 +2860,15 @@ function OfficialWeightScreen({state,dispatch}){
       dispatch({type:"SET_READY_SIGNAL",eventId:selEv,cls,session:selSession,stype:"weight",groups:selClasses.length===1?selGroups:[],by:u?.name});
     });
     notifyHeatDone(dispatch,state,{stationLabel:"Vægt",icon:"⚖️",eventId:selEv,cls:selClasses.join(" + "),session:selSession,by:u?.name,adminOnly:true});
-    setDone(true);setFlags({});clearFlagsDraft();
+    setDoneClasses(selClasses);setDone(true);setFlags({});clearFlagsDraft();
+    // Reset only the class selection — race and session/heat almost always stay the same for the
+    // next report in a row, but the class is what actually changes between consecutive reports.
+    setSelClasses([]);setSelGroups([]);
   };
 
   if(done)return <div style={{padding:16,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:16}}>
     <div style={{fontSize:60}}>✅</div>
-    <div style={{fontWeight:700,color:C.green,fontSize:18,textAlign:"center"}}>{selClasses.join(" + ")} – {selSession}<br/>Klar-signal sendt til tidtagning!</div>
+    <div style={{fontWeight:700,color:C.green,fontSize:18,textAlign:"center"}}>{doneClasses.join(" + ")} – {selSession}<br/>Klar-signal sendt til tidtagning!</div>
     <Btn onClick={()=>setDone(false)}>Ny indrapportering</Btn>
   </div>;
 
@@ -2944,6 +2948,7 @@ function OfficialNoseScreen({state,dispatch}){
   const classKey=selClasses.slice().sort().join("+");
   const [flags,setFlags,clearFlagsDraft]=useDraft(`gc_draft_nose_${selEv}_${classKey}_${selSession}`,{}); // {uid:{nose:true, photo:dataUrl|null, file:File|null}}
   const [done,setDone]=useState(false);
+  const [doneClasses,setDoneClasses]=useState([]);
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState("");
   const camRefs=useRef({});
@@ -2997,14 +3002,17 @@ function OfficialNoseScreen({state,dispatch}){
         dispatch({type:"SET_READY_SIGNAL",eventId:selEv,cls,session:selSession,stype:"nose",groups:selClasses.length===1?selGroups:[],by:u?.name});
       });
       notifyHeatDone(dispatch,state,{stationLabel:"Front fairing",icon:"🔧",eventId:selEv,cls:selClasses.join(" + "),session:selSession,by:u?.name,adminOnly:true});
-      setDone(true);setFlags({});clearFlagsDraft();
+      setDoneClasses(selClasses);setDone(true);setFlags({});clearFlagsDraft();
+      // Reset only the class selection — race and session/heat almost always stay the same for the
+      // next report in a row, but the class is what actually changes between consecutive reports.
+      setSelClasses([]);setSelGroups([]);
     }catch(e){setMsg(String(e.message||e));}
     setBusy(false);
   };
 
   if(done)return <div style={{padding:16,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:16}}>
     <div style={{fontSize:60}}>✅</div>
-    <div style={{fontWeight:700,color:C.green,fontSize:18,textAlign:"center"}}>{selClasses.join(" + ")} – {selSession}<br/>Klar-signal sendt til tidtagning!</div>
+    <div style={{fontWeight:700,color:C.green,fontSize:18,textAlign:"center"}}>{doneClasses.join(" + ")} – {selSession}<br/>Klar-signal sendt til tidtagning!</div>
     <Btn onClick={()=>setDone(false)}>Ny indrapportering</Btn>
   </div>;
 
