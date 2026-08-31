@@ -6037,7 +6037,7 @@ function AppearanceSettings({state,dispatch}){
 function AdminSetup({state,dispatch}){
   const t=useT();
   const [tab,setTab]=useState("sessions");
-  const tabs=[["sessions","🏳 Sessioner"],["racetypes","🏁 Løbstyper"],["clubs","🏢 Klubber"],["tracks","🏟 Baner"],["regulations","📋 Reglementer"],["penalties","⚠️ Straffe"],["storage","💾 Lager"],["appearance","🎨 Udseende"]];
+  const tabs=[["sessions","🏳 Sessioner"],["racetypes","🏁 Løbstyper"],["clubs","🏢 Klubber"],["tracks","🏟 Baner"],["regulations","📋 Reglementer"],["penalties","⚠️ Straffe"],["storage","💾 Lager"],["appearance","🎨 Udseende"],["mine","🎛️ Mine indstillinger"]];
   return <div>
     <SH title="Opsætning"/>
     <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:`1px solid ${C.border}`,paddingBottom:0}}>
@@ -6051,6 +6051,11 @@ function AdminSetup({state,dispatch}){
     {tab==="regulations"&&<AdminRegulations state={state} dispatch={dispatch}/>}
     {tab==="penalties"&&<AdminPenaltyTypes state={state} dispatch={dispatch}/>}
     {tab==="appearance"&&<AppearanceSettings state={state} dispatch={dispatch}/>}
+    {tab==="mine"&&<div>
+      <PushToggle u={state.currentUser}/>
+      <ReportLogoSettings state={state} dispatch={dispatch}/>
+      <NotifPrefsSettings state={state} dispatch={dispatch}/>
+    </div>}
   </div>;
 }
 
@@ -8212,7 +8217,7 @@ function AdminApp({state,dispatch}){
   const isSub=!isFullAdmin&&cu?.isSubAdmin;
   const mySeriesIds=(cu?.adminSeriesIds||[]).map(Number);
   // Sections a sub-admin is allowed to see (per plan). Main admin sees everything.
-  const subAllowed=new Set(["dashboard","events","registrations","driverlist","import","groups","officials","docs","notifications","penalties","inspection","standings","techpdfs","scanning","racereport","mysettings"]);
+  const subAllowed=new Set(["dashboard","events","registrations","driverlist","import","groups","officials","docs","notifications","penalties","inspection","standings","techpdfs","scanning","racereport"]);
 
   const [sec,setSec]=useState("dashboard");
   const [isMobile,setIsMobile]=useState(typeof window!=="undefined"?window.innerWidth<768:false);
@@ -8260,7 +8265,6 @@ function AdminApp({state,dispatch}){
     {id:"scanning",icon:"📷",label:"Udstyrsscanning",href:"scan.html"},
     {divider:true},
     {id:"setup",icon:"⚙️",label:t.navSetupAdmin},
-    {id:"mysettings",icon:"🎛️",label:t.navMySettings},
     {divider:true},
     {id:"users",icon:"👥",label:t.navUsers},
     {id:"officials",icon:"🔒",label:t.navOfficialsAdmin},
@@ -8321,7 +8325,6 @@ function AdminApp({state,dispatch}){
       {activeSec==="inspection"&&<AdminInspection state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
       {activeSec==="techpdfs"&&<TechPdfScreen state={state} dispatch={dispatch} useGlobalEv/>}
       {activeSec==="racereport"&&<AdminRaceReport state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
-      {activeSec==="mysettings"&&<SettingsScreen state={state} dispatch={dispatch}/>}
       {activeSec==="standings"&&<AdminStandings state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
       {activeSec==="licensecheck"&&<LicenseControl state={state} dispatch={dispatch} useGlobalEv seriesScope={isSub?mySeriesIds:null}/>}
     </div>
