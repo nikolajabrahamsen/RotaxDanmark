@@ -6594,6 +6594,15 @@ function AdminRaceReport({state,dispatch,seriesScope}){
   // word boundary or the very start right before "final" (i.e. not preceded by letters, "pre"
   // included) is what actually excludes it.
   const finalsDocs=(ev?.documents||[]).filter(d=>d.type==="Resultat"&&/(^|[^a-zæøå])final/i.test(d.title));
+  // Sorted youngest class first, matching the same age ordering used everywhere else in the app
+  // (sortClassesByAge) — so the finals results attach to the report in age order regardless of the
+  // order they happened to be uploaded in. Anything whose class doesn't match a known class (e.g.
+  // never assigned one) sorts to the end rather than breaking the order of everything else.
+  const classAgeOrder=sortClassesByAge(Object.keys(state.classRules),state.classRules);
+  finalsDocs.sort((a,b)=>{
+    const ia=classAgeOrder.indexOf(a.class),ib=classAgeOrder.indexOf(b.class);
+    return (ia===-1?999:ia)-(ib===-1?999:ib);
+  });
   const techPdfs=ev?.techPdfs||[];
   const approvedPenalties=(ev?.penalties||[]).filter(p=>p.approved);
   const registrations=ev?.registrations||[];
