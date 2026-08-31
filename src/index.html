@@ -6549,7 +6549,11 @@ function AdminRaceReport({state,dispatch,seriesScope}){
   const [msgOk,setMsgOk]=useState(true);
   const [activeTab,setActiveTab]=useState("generate"); // generate | upload
 
-  const finalsDocs=(ev?.documents||[]).filter(d=>d.type==="Resultat"&&/final/i.test(d.title));
+  // Matches documents titled with "Final"/"Finale" but not "Prefinal(e)" — a plain /final/i test
+  // matches both, since "final" is literally a substring of "prefinal". Requiring nothing but a
+  // word boundary or the very start right before "final" (i.e. not preceded by letters, "pre"
+  // included) is what actually excludes it.
+  const finalsDocs=(ev?.documents||[]).filter(d=>d.type==="Resultat"&&/(^|[^a-zæøå])final/i.test(d.title));
   const techPdfs=ev?.techPdfs||[];
   const approvedPenalties=(ev?.penalties||[]).filter(p=>p.approved);
   const registrations=ev?.registrations||[];
@@ -6575,6 +6579,11 @@ function AdminRaceReport({state,dispatch,seriesScope}){
       const {data:pub}=sb.storage.from("documents").getPublicUrl(path);
       const title=uploadTitle.trim()||file.name.replace(/\.[^.]+$/,"");
       dispatch({type:"ADD_REPORT_DOC",eventId:ev.id,payload:{id:Date.now(),title,url:pub.publicUrl,time:new Date().toLocaleString("da-DK")}});
+      // Nudge an immediate save and actually wait for it to settle before releasing the "uploading"
+      // lock below — same fix already applied to the Documents screen: this data lives inside the
+      // event (not a dedicated table), so without this it was only waiting out the general debounce,
+      // which is what made this feel slow.
+      if(window.__gcForceSave)await window.__gcForceSave();
       setUploadTitle("");
       setUploadMsg(t.admReportUploadDone);
     }catch(e){console.error(e);setUploadMsg(t.admReportGenError);}
@@ -6929,7 +6938,7 @@ function AdminRaceReport({state,dispatch,seriesScope}){
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
             <a href={d.url} target="_blank" rel="noreferrer" style={{color:C.blue,fontSize:11,fontWeight:700}}>{t.admOpenLink}</a>
-            <button onClick={()=>{if(confirm(`${t.admDeleteDocConfirmA}"${d.title}"${t.admDeleteDocConfirmB}`))dispatch({type:"REMOVE_REPORT_DOC",eventId:ev.id,docId:d.id});}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>×</button>
+            <button onClick={()=>{if(confirm(`${t.admDeleteDocConfirmA}"${d.title}"${t.admDeleteDocConfirmB}`)){dispatch({type:"REMOVE_REPORT_DOC",eventId:ev.id,docId:d.id});setTimeout(()=>window.__gcForceSave?.(),50);}}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>×</button>
           </div>
         </div>)}
       </Card>}
