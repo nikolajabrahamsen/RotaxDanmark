@@ -3100,6 +3100,19 @@ function OfficialTechScreen({state,dispatch}){
   const setResult=(upd)=>setTechDraft(d=>({...d,result:typeof upd==="function"?upd(d.result):upd}));
   const setNote=(upd)=>setTechDraft(d=>({...d,note:typeof upd==="function"?upd(d.note):upd}));
   const setTypeSel=(upd)=>setTechDraft(d=>({...d,typeSel:typeof upd==="function"?upd(d.typeSel):upd}));
+  // A directly-uploaded PDF, per driver — an alternative to taking photos (which the app then turns
+  // into a PDF itself on submit). Kept as plain File objects in ordinary state rather than folded
+  // into techDraft above, since techDraft is persisted to localStorage (to survive a page reload
+  // mid-session) and a File object can't be serialized that way — same reason camera photos get
+  // converted to a data URL immediately instead of staying as File objects.
+  const [uploadedPdfs,setUploadedPdfs]=useState({});
+  const pdfRefs=useRef({});
+  const setUploadedPdf=(uid,file)=>{
+    if(!file)return;
+    if(file.type!=="application/pdf"&&!file.name.toLowerCase().endsWith(".pdf")){setMsg(t.admOnlyPdfAllowed);return;}
+    setUploadedPdfs(p=>({...p,[uid]:file}));
+  };
+  const removeUploadedPdf=(uid)=>setUploadedPdfs(p=>{const n={...p};delete n[uid];return n;});
   const techCfg=state.stationPenalties?.tech||{};
   const techTypes=(techCfg.types||[]).filter(Boolean);
   const [busy,setBusy]=useState(false);
@@ -3147,8 +3160,15 @@ function OfficialTechScreen({state,dispatch}){
         const res=result[d.id];
         if(!res)continue; // only those that have been assessed
         const imgs=photos[d.id]||[];
+        const directPdf=uploadedPdfs[d.id];
         let pdfUrl=null;
-        if(imgs.length&&sb){
+        if(directPdf&&sb){
+          // A directly-uploaded PDF takes priority over camera photos for this driver — upload it
+          // as-is instead of building one from photos.
+          const path=`tech-control/${selEv}/${new Date().toISOString().slice(0,10)}_${d.kartNumber}_${Date.now()}.pdf`;
+          const {error:upErr}=await sb.storage.from("documents").upload(path,directPdf,{contentType:"application/pdf",upsert:false});
+          if(!upErr){const {data:pub}=sb.storage.from("documents").getPublicUrl(path);pdfUrl=pub.publicUrl;}
+        }else if(imgs.length&&sb){
           const pdf=await makePdf(d,imgs);
           if(pdf){
             const blob=pdf.output("blob");
@@ -3167,7 +3187,7 @@ function OfficialTechScreen({state,dispatch}){
       dispatch({type:"SET_READY_SIGNAL",eventId:selEv,cls:selClass,session:selSession,stype:"tech",groups:selGroups,by:u?.name});
       notifyHeatDone(dispatch,state,{stationLabel:"Teknisk kontrol",icon:"🔩",eventId:selEv,cls:selClass,session:selSession,by:u?.name,adminOnly:true});
       setDone(true);
-      setPhotos({});setResult({});setNote({});setTypeSel({});clearTechDraft();
+      setPhotos({});setResult({});setNote({});setTypeSel({});setUploadedPdfs({});clearTechDraft();
     }catch(e){setMsg(String(e.message||e));}
     setBusy(false);
   };
@@ -3199,6 +3219,7 @@ function OfficialTechScreen({state,dispatch}){
       {regDrivers.map((d)=>{
         const imgs=photos[d.id]||[];
         const res=result[d.id];
+        const uploadedPdf=uploadedPdfs[d.id];
         return <Card key={d.id} style={{padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${res==="ok"?C.green:res==="fejl"?C.red:C.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
             <div style={{fontWeight:900,color:C.text,fontSize:22,fontFamily:"'Barlow Condensed',sans-serif",minWidth:44}}>#{d.kartNumber}</div>
@@ -3208,15 +3229,22 @@ function OfficialTechScreen({state,dispatch}){
             </div>
           </div>
           <input ref={el=>camRefs.current[d.id]=el} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>{addPhoto(d.id,e.target.files[0]);e.target.value="";}}/>
+          <input ref={el=>pdfRefs.current[d.id]=el} type="file" accept="application/pdf,.pdf" style={{display:"none"}} onChange={e=>{setUploadedPdf(d.id,e.target.files[0]);e.target.value="";}}/>
           {imgs.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
             {imgs.map((img,i)=><div key={i} style={{position:"relative"}}>
               <img src={img} style={{width:56,height:42,objectFit:"cover",borderRadius:4,border:`1px solid ${C.border}`}} alt={`Foto ${i+1}`}/>
               <button onClick={()=>removePhoto(d.id,i)} style={{position:"absolute",top:-6,right:-6,width:18,height:18,borderRadius:"50%",background:C.red,color:"#fff",border:"none",fontSize:11,cursor:"pointer",lineHeight:1}}>×</button>
             </div>)}
           </div>}
+          {uploadedPdf&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 10px"}}>
+            <span style={{fontSize:16}}>📄</span>
+            <span style={{color:C.text,fontSize:12,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{uploadedPdf.name}</span>
+            <button onClick={()=>removeUploadedPdf(d.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>✕</button>
+          </div>}
           <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-            <Btn small variant="secondary" onClick={()=>camRefs.current[d.id]?.click()}>📷 {imgs.length?"Tag flere":"Tag foto"}</Btn>
-            {imgs.length>0&&<Btn small variant="ghost" onClick={()=>downloadPdf(d)}>📄 PDF ({imgs.length})</Btn>}
+            {!uploadedPdf&&<Btn small variant="secondary" onClick={()=>camRefs.current[d.id]?.click()}>📷 {imgs.length?"Tag flere":"Tag foto"}</Btn>}
+            {imgs.length>0&&!uploadedPdf&&<Btn small variant="ghost" onClick={()=>downloadPdf(d)}>📄 PDF ({imgs.length})</Btn>}
+            {imgs.length===0&&<Btn small variant="ghost" onClick={()=>pdfRefs.current[d.id]?.click()}>📎 {uploadedPdf?"Skift PDF":"Upload PDF"}</Btn>}
             <div style={{flex:1}}/>
             <button onClick={()=>setResult(r=>({...r,[d.id]:r[d.id]==="ok"?undefined:"ok"}))} style={{background:res==="ok"?`${C.green}33`:C.surface2,border:`2px solid ${res==="ok"?C.green:C.border}`,borderRadius:6,padding:"5px 12px",color:res==="ok"?C.green:C.textMuted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓ OK</button>
             <button onClick={()=>setResult(r=>({...r,[d.id]:r[d.id]==="fejl"?undefined:"fejl"}))} style={{background:res==="fejl"?`${C.red}33`:C.surface2,border:`2px solid ${res==="fejl"?C.red:C.border}`,borderRadius:6,padding:"5px 12px",color:res==="fejl"?C.red:C.textMuted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✗ Fejl</button>
