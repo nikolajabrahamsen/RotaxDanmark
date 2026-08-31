@@ -6598,10 +6598,18 @@ function AdminRaceReport({state,dispatch,seriesScope}){
   // (sortClassesByAge) — so the finals results attach to the report in age order regardless of the
   // order they happened to be uploaded in. Anything whose class doesn't match a known class (e.g.
   // never assigned one) sorts to the end rather than breaking the order of everything else.
+  // Within the same class, a title ending in a group letter (e.g. "Rotax Senior Finale A"/"...B",
+  // for a class split into heat groups) sorts A before B before C, rather than upload order.
   const classAgeOrder=sortClassesByAge(Object.keys(state.classRules),state.classRules);
+  const groupLetterOf=(title)=>{
+    const m=(title||"").match(/(?:^|[\s\-_(])([A-Za-z])\)?$/);
+    return m?m[1].toUpperCase():"";
+  };
   finalsDocs.sort((a,b)=>{
     const ia=classAgeOrder.indexOf(a.class),ib=classAgeOrder.indexOf(b.class);
-    return (ia===-1?999:ia)-(ib===-1?999:ib);
+    const ca=ia===-1?999:ia,cb=ib===-1?999:ib;
+    if(ca!==cb)return ca-cb;
+    return groupLetterOf(a.title).localeCompare(groupLetterOf(b.title));
   });
   const techPdfs=ev?.techPdfs||[];
   const approvedPenalties=(ev?.penalties||[]).filter(p=>p.approved);
