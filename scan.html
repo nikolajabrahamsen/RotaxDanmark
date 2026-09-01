@@ -582,11 +582,19 @@ function ScanMode({ev,users,sessions,scans,addScan,scanLimits,me}){
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
         {["frame","motor","slick","wet"].map(part=>{
           const known=partBarcodes(driver.id,part);
-          const limit=part==="slick"||part==="wet"?5:null;
-          return <Card key={part} onClick={()=>setActivePart(part)} style={{cursor:"pointer",borderLeft:`3px solid ${activePart===part?C.red:C.border}`,marginBottom:0}}>
+          const {hard}=limitFor(part,scanLimits);
+          // Checkmark = this part has at least one successful (non-rejected) scan recorded for the
+          // CURRENT session — so it reflects "scanned and confirmed to match" for whichever session
+          // is selected right now, and naturally shows the right thing again if you switch back to
+          // an earlier session (e.g. Opvarmning) later, since each scan is already saved with its
+          // own session on it.
+          const sessionScans=scans.filter(s=>s.driver_id===driver.id&&s.part_type===part&&(sessionCtx==="checkin"?!s.session:s.session===sessionCtx));
+          const verified=sessionScans.some(s=>s.status!=="violation");
+          return <Card key={part} onClick={()=>setActivePart(part)} style={{cursor:"pointer",position:"relative",borderLeft:`3px solid ${activePart===part?C.red:verified?C.green:C.border}`,marginBottom:0}}>
+            {verified&&<div style={{position:"absolute",top:6,right:8,fontSize:16}}>✅</div>}
             <div style={{fontSize:20,marginBottom:4}}>{PART_ICONS[part]}</div>
             <div style={{fontWeight:700,fontSize:13}}>{PARTS[part]}</div>
-            <div style={{color:C.textMuted,fontSize:11}}>{known.length}{limit?`/${limit}`:""} {STR.registered}</div>
+            <div style={{color:C.textMuted,fontSize:11}}>{known.length}/{hard} {STR.registered}</div>
           </Card>;
         })}
       </div>
