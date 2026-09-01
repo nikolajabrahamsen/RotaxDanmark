@@ -149,6 +149,18 @@ function attachRegistrations(events,regRows){
   (regRows||[]).forEach(r=>{(byEv[r.event_id]=byEv[r.event_id]||[]).push(rowToRegistration(r));});
   return (events||[]).map(ev=>({...ev,registrations:byEv[ev.id]||[]}));
 }
+// Mirrors the same helper in the main app (index.html) — sessions live per-series (if the race
+// belongs to one) or per-race (if standalone) rather than one shared global list. Kept in sync with
+// that logic so this scanning app resolves the same session/heat list the main app shows.
+function sessionsForEvent(ev,raceSeries){
+  if(!ev)return[];
+  if(ev.seriesId){
+    const series=(raceSeries||[]).find(s=>s.id===ev.seriesId);
+    return series?.sessions||[];
+  }
+  return ev.sessions||[];
+}
+
 function resolveGroups(ev,cls,session){
   const sg=ev?.sessionGroups||{};
   return sg[`${cls}||${session}`]||sg[`${cls}||*`]||null;
@@ -187,13 +199,21 @@ const LANG=_storedLang;
 document.title=LANG==="en"?"GridControl – Equipment scanning":"GridControl – Udstyrsscanning";
 document.documentElement.lang=LANG;
 const PARTS=LANG==="en"?PART_LABELS_EN:PART_LABELS;
+// Defaults used until an admin sets real values under the Settings tab (or if the equipment_limits
+// table hasn't been set up yet). "soft" = scanning up to this many is silent, no popup; scanning
+// past it (but still under "hard") asks for confirmation each time; "hard" = flatly not possible.
+const DEFAULT_SCAN_LIMITS={frame:{soft:1,hard:2},motor:{soft:1,hard:2},slick:{soft:4,hard:6},wet:{soft:4,hard:6}};
+function limitFor(part,scanLimits){return (scanLimits&&scanLimits[part])||DEFAULT_SCAN_LIMITS[part]||{soft:99,hard:100};}
 const STR={
   da:{
     loading:"Indlæser...",loginRequired:"Du skal være logget ind i hovedappen for at bruge udstyrsscanning.",
     loginBtn:"Log ind i GridControl",notOfficial:"Udstyrsscanning er kun tilgængelig for officials og admin.",
     race:"Løb",chooseRace:"Vælg løb...",backToApp:"← Til appen",
     notAssigned:"Du er ikke tildelt udstyrsscanning til dette løb. Kontakt admin hvis det er en fejl.",
-    tabScan:"🔍 Scan",tabHeat:"🏁 Heat-oversigt",tabProfile:"👤 Kører-profil",
+    tabScan:"🔍 Scan",tabHeat:"🏁 Heat-oversigt",tabProfile:"👤 Kører-profil",tabSettings:"⚙️ Indstillinger",
+    limitsTitle:"Grænser for udstyr",limitsHint:"Under grænsen for \"normalt antal\" bliver et nyt scan tilføjet uden at spørge. Fra dér og op til maksimum bliver der spurgt hver gang. Ved maksimum kan der slet ikke tilføjes flere.",
+    softLimitLabel:"Normalt antal (spørg fra her)",hardLimitLabel:"Maksimum (kan ikke overskrides)",
+    save:"Gem",limitsInvalid:"Maksimum skal være højere end normalt antal, og begge skal være mindst 1.",limitsSaveFailed:"Kunne ikke gemme – prøv igen.",
     choosePrompt:"Vælg et løb for at komme i gang.",
     yourName:"Dit navn (til log)",choose:"Vælg...",context:"Kontekst",checkinLong:"Indskrivning (start af løb)",
     classProgress:"Scannet ind pr. klasse",
@@ -202,12 +222,13 @@ const STR={
     registered:"registreret",scanPrefix:"Scan",scanOrEnterBarcode:"Scan eller indtast stregkode...",
     knownCodes:"Kendte koder:",noneYet:"Ingen registreret endnu",newFor:"Nyt",newCode:"Ny kode:",
     alreadyRegistered:"Allerede registreret",
-    tireConfirm:n=>`Dette bliver dæk nr. ${n} af 5. Bekræft at det skal tilføjes.`,
+    tireConfirm:(n,max)=>`Dette bliver nr. ${n} af (normalt) ${max}. Bekræft at det skal tilføjes.`,
     partConfirm:(part,name)=>`Bekræft at denne ${part} skal tilføjes til ${name}s udstyr.`,
     confirmAdd:"✓ Bekræft & tilføj",cancel:"Annuller",tooMany:"FOR MANGE",
-    alreadyHas5:(name,part)=>`${name} har allerede 5 registrerede ${part}.`,
+    alreadyHas5:(name,part,max)=>`${name} har allerede ${max} registrerede ${part} – det er maksimum.`,
     codeNotApproved:code=>`Kode ${code} er ikke en del af de godkendte. Køreren skal afvises.`,
     confirmReject:"BEKRÆFT & AFVIS KØRER",
+    deleteScan:"Slet dette scan",deleteScanConfirm:code=>`Slet scan af koden "${code}"? Bruges hvis der er scannet en forkert stregkode ved en fejl.`,
     class:"Klasse",chooseClass:"Vælg klasse...",session:"Session",checkin:"Indskrivning",group:"Gruppe",
     scanned:"scannet",rejected:"afvist",missing:"mangler",
     scannedLabel:"✓ Scannet",rejectedLabel:"⚠ Afvist",missingLabel:"Mangler",
@@ -225,7 +246,10 @@ const STR={
     loginBtn:"Log in to GridControl",notOfficial:"Equipment scanning is only available to officials and admins.",
     race:"Race",chooseRace:"Select race...",backToApp:"← Back to app",
     notAssigned:"You're not assigned to equipment scanning for this race. Contact an admin if this is a mistake.",
-    tabScan:"🔍 Scan",tabHeat:"🏁 Heat overview",tabProfile:"👤 Driver profile",
+    tabScan:"🔍 Scan",tabHeat:"🏁 Heat overview",tabProfile:"👤 Driver profile",tabSettings:"⚙️ Settings",
+    limitsTitle:"Equipment limits",limitsHint:"Below the \"normal amount\" limit, a new scan is added without asking. From there up to the maximum, it'll ask for confirmation every time. At the maximum, nothing more can be added at all.",
+    softLimitLabel:"Normal amount (ask from here)",hardLimitLabel:"Maximum (can't be exceeded)",
+    save:"Save",limitsInvalid:"Maximum must be higher than the normal amount, and both must be at least 1.",limitsSaveFailed:"Could not save – try again.",
     choosePrompt:"Select a race to get started.",
     yourName:"Your name (for the log)",choose:"Select...",context:"Context",checkinLong:"Check-in (start of race)",
     classProgress:"Scanned in per class",
@@ -234,10 +258,10 @@ const STR={
     registered:"registered",scanPrefix:"Scan",scanOrEnterBarcode:"Scan or enter barcode...",
     knownCodes:"Known codes:",noneYet:"None registered yet",newFor:"New",newCode:"New code:",
     alreadyRegistered:"Already registered",
-    tireConfirm:n=>`This will be tire no. ${n} of 5. Confirm it should be added.`,
+    tireConfirm:(n,max)=>`This will be no. ${n} of (normally) ${max}. Confirm it should be added.`,
     partConfirm:(part,name)=>`Confirm that this ${part} should be added to ${name}'s equipment.`,
     confirmAdd:"✓ Confirm & add",cancel:"Cancel",tooMany:"TOO MANY",
-    alreadyHas5:(name,part)=>`${name} already has 5 registered ${part}.`,
+    alreadyHas5:(name,part,max)=>`${name} already has ${max} registered ${part} – that's the maximum.`,
     codeNotApproved:code=>`Code ${code} is not one of the approved ones. The driver must be rejected.`,
     confirmReject:"CONFIRM & REJECT DRIVER",
     class:"Class",chooseClass:"Select class...",session:"Session",checkin:"Check-in",group:"Group",
@@ -275,7 +299,8 @@ function App(){
   const [loaded,setLoaded]=useState(false);
   const [users,setUsers]=useState([]);
   const [events,setEvents]=useState([]);
-  const [sessions,setSessions]=useState([]); // heat/session names list
+  const [raceSeries,setRaceSeries]=useState([]);
+  const [scanLimits,setScanLimits]=useState({}); // {part_type: {soft, hard}}
   const [selEvId,setSelEvId]=useState(null);
   const [scans,setScans]=useState([]); // equipment_scans rows for the selected event
   const [mode,setMode]=useState("scan"); // scan | heat | profile
@@ -289,17 +314,24 @@ function App(){
   useEffect(()=>{
     if(!session)return;
     (async()=>{
-      const [{data:profiles},{data:stateRow},{data:regRows},{data:importedRows}]=await Promise.all([
+      const [{data:profiles},{data:stateRow},{data:regRows},{data:importedRows},{data:limitRows,error:limitErr}]=await Promise.all([
         sb.from("profiles").select("*"),
         sb.from("app_state").select("data").eq("id",1).maybeSingle(),
         sb.from("registrations").select("*"),
         sb.from("imported_users").select("*"),
+        sb.from("equipment_limits").select("*"),
       ]);
+      // Optional table — if it hasn't been set up yet (migration not run), fall back to sensible
+      // defaults rather than breaking scanning entirely.
+      if(limitErr)console.warn("equipment_limits table unavailable — using default limits.",limitErr);
+      const limits={};
+      (limitRows||[]).forEach(r=>{limits[r.part_type]={soft:r.soft_limit,hard:r.hard_limit};});
+      setScanLimits(limits);
       const imported=(importedRows||[]).map(rowToImportedUser);
       const merged=[...(profiles||[]).map(rowToUser),...imported];
       setUsers(merged);
       setEvents(attachRegistrations(stateRow?.data?.events||[],regRows||[]));
-      setSessions(stateRow?.data?.sessions||[]);
+      setRaceSeries(stateRow?.data?.raceSeries||[]);
       setLoaded(true);
     })();
   },[session]);
@@ -338,6 +370,22 @@ function App(){
     return {data,error};
   };
 
+  // Removes a wrongly-scanned barcode entirely — for when the wrong code got scanned by mistake.
+  const deleteScan=async(id)=>{
+    const {error}=await sb.from("equipment_scans").delete().eq("id",id);
+    if(!error)setScans(prev=>prev.filter(s=>s.id!==id));
+    else console.error("Supabase equipment_scans delete:",error);
+    return {error};
+  };
+
+  // Saves one part's soft/hard limits (used by the Settings tab) — upserts the row and updates
+  // local state immediately so the new limits apply right away, no reload needed.
+  const saveScanLimit=async(part,soft,hard)=>{
+    const {error}=await sb.from("equipment_limits").upsert({part_type:part,soft_limit:soft,hard_limit:hard},{onConflict:"part_type"});
+    if(!error)setScanLimits(prev=>({...prev,[part]:{soft,hard}}));
+    return {error};
+  };
+
   if(session===undefined||( session&&!loaded))return <div style={{padding:40,textAlign:"center",color:C.textMuted}}>{STR.loading}</div>;
   if(session===null)return <LoginGate/>;
 
@@ -352,6 +400,7 @@ function App(){
   }
 
   const ev=events.find(e=>e.id===selEvId);
+  const currentSessions=sessionsForEvent(ev,raceSeries);
   const isAdminUser=!!(me.isAdmin||me.isSubAdmin);
   const notAssignedToThisEvent=ev&&!isAdminUser&&(ev.scanningOfficials||[]).length>0&&!(ev.scanningOfficials||[]).includes(me.id);
 
@@ -370,13 +419,14 @@ function App(){
       {ev&&notAssignedToThisEvent&&<div style={{color:C.orange,fontSize:13,padding:24,textAlign:"center",background:`${C.orange}11`,borderRadius:8,border:`1px solid ${C.orange}44`}}>{STR.notAssigned}</div>}
       {ev&&!notAssignedToThisEvent&&<>
         <div style={{display:"flex",gap:8,marginBottom:16}}>
-          {[["scan",STR.tabScan],["heat",STR.tabHeat],["profile",STR.tabProfile]].map(([id,label])=>
+          {[["scan",STR.tabScan],["heat",STR.tabHeat],["profile",STR.tabProfile],...(isAdminUser?[["settings",STR.tabSettings]]:[])].map(([id,label])=>
             <button key={id} onClick={()=>setMode(id)} style={{flex:1,background:mode===id?`${C.red}22`:C.surface2,border:`2px solid ${mode===id?C.red:C.border}`,borderRadius:8,padding:"8px 4px",cursor:"pointer",color:mode===id?C.red:C.textMuted,fontWeight:700,fontSize:12,fontFamily:"inherit"}}>{label}</button>
           )}
         </div>
-        {mode==="scan"&&<ScanMode ev={ev} users={users} sessions={sessions} scans={scans} addScan={addScan} me={me}/>}
-        {mode==="heat"&&<HeatOverview ev={ev} users={users} sessions={sessions} scans={scans}/>}
-        {mode==="profile"&&<DriverProfile ev={ev} users={users} scans={scans}/>}
+        {mode==="scan"&&<ScanMode ev={ev} users={users} sessions={currentSessions} scans={scans} addScan={addScan} scanLimits={scanLimits} me={me}/>}
+        {mode==="heat"&&<HeatOverview ev={ev} users={users} sessions={currentSessions} scans={scans}/>}
+        {mode==="profile"&&<DriverProfile ev={ev} users={users} scans={scans} scanLimits={scanLimits} deleteScan={deleteScan}/>}
+        {mode==="settings"&&isAdminUser&&<ScanLimitsSettings scanLimits={scanLimits} saveScanLimit={saveScanLimit}/>}
       </>}
       {!ev&&<div style={{color:C.textDim,fontSize:13,padding:24,textAlign:"center"}}>{STR.choosePrompt}</div>}
     </div>
@@ -394,7 +444,7 @@ function LoginGate(){
 }
 
 // ── SCAN MODE ────────────────────────────────────────────────────────────
-function ScanMode({ev,users,sessions,scans,addScan,me}){
+function ScanMode({ev,users,sessions,scans,addScan,scanLimits,me}){
   const [sessionCtx,setSessionCtx]=useState("checkin"); // "checkin" or a heat name
   const [code,setCode]=useState("");
   const [driver,setDriver]=useState(null);
@@ -454,19 +504,23 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
       setActivePart(null);
       return;
     }
-    if(part==="frame"||part==="motor"){
-      // Unlimited history for frame/motor, but still confirm before adding — shows what's new
-      // and how many the driver already has registered.
-      setConfirmPopup({part,barcode,count:known.length});
-      return;
-    }
-    // Tire: enforce the 5-per-type limit
-    if(known.length<5){
-      setConfirmPopup({part,barcode,count:known.length});
-    }else{
+    // Below the soft limit (set under the Indstillinger tab, or the built-in defaults): just add
+    // it, no popup — that's the whole point of a "soft" limit, it shouldn't interrupt the normal
+    // flow before there's actually anything to double-check. At/above soft (but still under hard):
+    // ask for confirmation each time, same as before. At/above hard: genuinely blocked, no way to
+    // add it at all, not even with confirmation.
+    const {soft,hard}=limitFor(part,scanLimits);
+    if(known.length>=hard){
       playAlarm();
       setAlarm({part,barcode});
+      return;
     }
+    if(known.length<soft){
+      await addScan({event_id:ev.id,driver_id:driver.id,driver_name:driver.name,kart_no:driver.kartNumber?String(driver.kartNumber):null,class:driver._regClass,session:sessionCtx==="checkin"?null:sessionCtx,part_type:part,barcode,status:known.length?"new_registered":"ok",scanned_by:byName});
+      setActivePart(null);
+      return;
+    }
+    setConfirmPopup({part,barcode,count:known.length});
   };
 
   const confirmNewPart=async(accept)=>{
@@ -477,8 +531,10 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
     setActivePart(null);
   };
 
-  const acknowledgeAlarm=async()=>{
-    await addScan({event_id:ev.id,driver_id:driver.id,driver_name:driver.name,kart_no:driver.kartNumber?String(driver.kartNumber):null,class:driver._regClass,session:sessionCtx==="checkin"?null:sessionCtx,part_type:alarm.part,barcode:alarm.barcode,status:"violation",scanned_by:byName});
+  // Hitting the hard limit is a genuine block now — dismissing the alarm doesn't add the scan at
+  // all (it used to log it as a "violation" and let it through anyway, which didn't actually stop
+  // anything). If it truly needs to go in, an admin has to raise the limit under Indstillinger.
+  const acknowledgeAlarm=()=>{
     setAlarm(null);
     setActivePart(null);
   };
@@ -581,19 +637,15 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
     />}
 
     {confirmPopup&&(()=>{
-      const isTire=confirmPopup.part==="slick"||confirmPopup.part==="wet";
       const existing=partBarcodes(driver.id,confirmPopup.part);
+      const {hard}=limitFor(confirmPopup.part,scanLimits);
       return <div style={{position:"fixed",inset:0,background:"#000000cc",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
         <Card style={{maxWidth:400,borderLeft:`3px solid ${C.orange}`}}>
           <div style={{fontWeight:700,fontSize:16,marginBottom:8,color:C.orange}}>{PART_ICONS[confirmPopup.part]} {STR.newFor} {PARTS[confirmPopup.part].toLowerCase()} for {driver.name}</div>
           <div style={{color:C.text,fontSize:13,marginBottom:10}}>{STR.newCode} <b>{confirmPopup.barcode}</b></div>
-          <div style={{color:C.textMuted,fontSize:11,letterSpacing:1,marginBottom:4,textTransform:"uppercase"}}>{existing.length>0?`${STR.alreadyRegistered} (${existing.length}${isTire?"/5":""})`:STR.noneYet}</div>
+          <div style={{color:C.textMuted,fontSize:11,letterSpacing:1,marginBottom:4,textTransform:"uppercase"}}>{existing.length>0?`${STR.alreadyRegistered} (${existing.length}/${hard})`:STR.noneYet}</div>
           {existing.length>0&&<div style={{background:C.surface2,borderRadius:6,padding:"8px 10px",marginBottom:12,fontSize:12,color:C.textMuted}}>{existing.map(code=><div key={code}>{code}</div>)}</div>}
-          <div style={{color:C.textMuted,fontSize:12,marginBottom:16}}>
-            {isTire
-              ?STR.tireConfirm(confirmPopup.count+1)
-              :STR.partConfirm(PARTS[confirmPopup.part].toLowerCase(),driver.name)}
-          </div>
+          <div style={{color:C.textMuted,fontSize:12,marginBottom:16}}>{STR.tireConfirm(confirmPopup.count+1,hard)}</div>
           <div style={{display:"flex",gap:8}}>
             <Btn onClick={()=>confirmNewPart(true)} style={{flex:1}}>{STR.confirmAdd}</Btn>
             <Btn variant="ghost" onClick={()=>confirmNewPart(false)} style={{flex:1}}>{STR.cancel}</Btn>
@@ -606,7 +658,7 @@ function ScanMode({ev,users,sessions,scans,addScan,me}){
       <div style={{textAlign:"center",maxWidth:420}}>
         <div style={{fontSize:60,marginBottom:12}}>⚠️</div>
         <div style={{fontWeight:900,fontSize:26,color:"#fff",marginBottom:12,fontFamily:"'Barlow Condensed',sans-serif"}}>{STR.tooMany} {PARTS[alarm.part].toUpperCase()}</div>
-        <div style={{color:"#fff",fontSize:15,marginBottom:6}}>{STR.alreadyHas5(driver.name,PARTS[alarm.part].toLowerCase())}</div>
+        <div style={{color:"#fff",fontSize:15,marginBottom:6}}>{STR.alreadyHas5(driver.name,PARTS[alarm.part].toLowerCase(),limitFor(alarm.part,scanLimits).hard)}</div>
         <div style={{color:"#fff",fontSize:13,marginBottom:24,opacity:0.9}}>{STR.codeNotApproved(alarm.barcode)}</div>
         <button onClick={acknowledgeAlarm} style={{background:"#fff",color:C.red,border:"none",borderRadius:8,padding:"14px 28px",fontSize:16,fontWeight:900,cursor:"pointer",fontFamily:"inherit"}}>{STR.confirmReject}</button>
       </div>
@@ -716,7 +768,49 @@ function HeatOverview({ev,users,sessions,scans}){
 }
 
 // ── DRIVER PROFILE ───────────────────────────────────────────────────────
-function DriverProfile({ev,users,scans}){
+// Lets an admin/sub-admin set, per equipment part, how many are "normal" (soft limit — scanning
+// up to this many is silent, no popup) versus the hard cap where it's flatly not possible to add
+// more at all. Defaults (DEFAULT_SCAN_LIMITS) apply until something's saved here.
+function ScanLimitsSettings({scanLimits,saveScanLimit}){
+  const [form,setForm]=useState(()=>{
+    const f={};
+    Object.keys(PARTS).forEach(part=>{
+      const l=limitFor(part,scanLimits);
+      f[part]={soft:String(l.soft),hard:String(l.hard)};
+    });
+    return f;
+  });
+  const [savedPart,setSavedPart]=useState(null);
+  const [err,setErr]=useState("");
+  const save=async(part)=>{
+    setErr("");
+    const soft=parseInt(form[part].soft);
+    const hard=parseInt(form[part].hard);
+    if(!soft||!hard||hard<=soft){setErr(STR.limitsInvalid);return;}
+    const {error}=await saveScanLimit(part,soft,hard);
+    if(error){setErr(STR.limitsSaveFailed);console.error(error);return;}
+    setSavedPart(part);setTimeout(()=>setSavedPart(null),1500);
+  };
+  return <div>
+    <Card>
+      <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{STR.limitsTitle}</div>
+      <div style={{color:C.textMuted,fontSize:12}}>{STR.limitsHint}</div>
+    </Card>
+    {err&&<div style={{color:C.red,fontSize:12,marginBottom:8,textAlign:"center"}}>{err}</div>}
+    {Object.keys(PARTS).map(part=>
+      <Card key={part}>
+        <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>{PART_ICONS[part]} {PARTS[part]}</div>
+        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+          <div style={{flex:1}}><Input label={STR.softLimitLabel} type="number" value={form[part].soft} onChange={v=>setForm(f=>({...f,[part]:{...f[part],soft:v}}))}/></div>
+          <div style={{flex:1}}><Input label={STR.hardLimitLabel} type="number" value={form[part].hard} onChange={v=>setForm(f=>({...f,[part]:{...f[part],hard:v}}))}/></div>
+          <Btn small onClick={()=>save(part)} style={{marginBottom:10}}>{savedPart===part?"✓":STR.save}</Btn>
+        </div>
+      </Card>
+    )}
+  </div>;
+}
+
+function DriverProfile({ev,users,scans,scanLimits,deleteScan}){
   const [search,setSearch]=useState("");
   const [selId,setSelId]=useState(null);
   const regIds=new Set((ev.registrations||[]).map(r=>r.userId));
@@ -749,12 +843,16 @@ function DriverProfile({ev,users,scans}){
     {["frame","motor","slick","wet"].map(part=>{
       const rows=driverScans.filter(s=>s.part_type===part);
       const known=[...new Set(rows.filter(r=>r.status!=="violation").map(r=>r.barcode))];
+      const {hard}=limitFor(part,scanLimits);
       return <Card key={part}>
-        <div style={{fontWeight:700,fontSize:13,marginBottom:6}}>{PART_ICONS[part]} {PARTS[part]} ({known.length}{part==="slick"||part==="wet"?"/5":""})</div>
+        <div style={{fontWeight:700,fontSize:13,marginBottom:6}}>{PART_ICONS[part]} {PARTS[part]} ({known.length}/{hard})</div>
         {rows.length===0&&<div style={{color:C.textDim,fontSize:12}}>{STR.nothingScannedYet}</div>}
-        {rows.map(r=><div key={r.id} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
+        {rows.map(r=><div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
           <span style={{color:r.status==="violation"?C.red:C.text}}>{r.barcode}{r.status==="violation"?` ${STR.rejectedTag}`:""}{r.session?` · ${r.session}`:` · ${STR.checkin}`}</span>
-          <span style={{color:C.textDim}}>{new Date(r.created_at).toLocaleString(LANG==="en"?"en-GB":"da-DK")}</span>
+          <span style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{color:C.textDim}}>{new Date(r.created_at).toLocaleString(LANG==="en"?"en-GB":"da-DK")}</span>
+            <button onClick={()=>{if(window.confirm(STR.deleteScanConfirm(r.barcode)))deleteScan(r.id);}} title={STR.deleteScan} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:14,fontFamily:"inherit",padding:0,lineHeight:1}}>✕</button>
+          </span>
         </div>)}
       </Card>;
     })}
