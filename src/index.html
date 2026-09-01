@@ -749,6 +749,19 @@ function attachEventTables(events,penaltyRows,signalRows){
 // result to know what to persist to the imported_users/registrations tables — see stripLocal).
 function genId(){return Date.now()*1000+Math.floor(Math.random()*1000);}
 
+// Resolves the session list (Heat 1, Heat 2, Prefinale, Finale, etc.) for a given race: its own
+// series' sessions if it belongs to one, otherwise the race's own sessions if it's standalone. This
+// replaced one single global list shared by every race, so different series (or standalone races)
+// can each have their own heat/session structure instead of all sharing one.
+function sessionsForEvent(state,ev){
+  if(!ev)return[];
+  if(ev.seriesId){
+    const series=(state.raceSeries||[]).find(s=>s.id===ev.seriesId);
+    return series?.sessions||[];
+  }
+  return ev.sessions||[];
+}
+
 // Reactive access to the app's overall sync status ("loading"/"saving"/"synced"/"error"/"local"),
 // broadcast via window events from the App component. Lets a component react to a save happening
 // anywhere in the app, not just one it triggered itself — e.g. blocking a new document upload from
@@ -975,6 +988,22 @@ function reducer(state,action){
         merged.kartRegisters={main:action.payload.kartRegister};
       }
       delete merged.kartRegister;
+      // One-time migration: sessions used to be one flat list shared by every race — now each
+      // series (or standalone race) has its own. Runs exactly once ever (gated by
+      // sessionsMigrationDone, itself saved as part of state), copying the old shared list in as a
+      // starting point for every series and every standalone race that doesn't already have its
+      // own sessions set — so nothing suddenly loses its session dropdown on the day this ships.
+      // Anything created after this has already run starts with an empty list instead, since by
+      // then there's no more single "current" list to sensibly copy from.
+      if(!merged.sessionsMigrationDone){
+        const legacySessions=action.payload.sessions||state.sessions||[];
+        merged.raceSeries=(merged.raceSeries||[]).map(s=>({...s,sessions:(s.sessions&&s.sessions.length)?s.sessions:legacySessions.map(x=>({...x}))}));
+        merged.events=(merged.events||[]).map(ev=>{
+          if(ev.seriesId)return ev; // uses its series' sessions instead of its own
+          return{...ev,sessions:(ev.sessions&&ev.sessions.length)?ev.sessions:legacySessions.map(x=>({...x}))};
+        });
+        merged.sessionsMigrationDone=true;
+      }
       return merged;
     }
     case "SET_PROFILES":{
@@ -1046,6 +1075,18 @@ function reducer(state,action){
     case "ADD_SESSION":return{...state,sessions:[...(state.sessions||[]),{id:Date.now(),name:action.name}]};
     case "DELETE_SESSION":return{...state,sessions:(state.sessions||[]).filter(x=>x.id!==action.id)};
     case "UPDATE_SESSION":return{...state,sessions:(state.sessions||[]).map(x=>x.id===action.id?{...x,name:action.name}:x)};
+    // Sessions now live per-series (for races that belong to one) or per-event (for standalone
+    // races) instead of one shared global list — see sessionsForEvent. The old global list/actions
+    // above are kept only as the source for the one-time migration in HYDRATE below; nothing new
+    // writes to state.sessions anymore.
+    case "ADD_SERIES_SESSION":return{...state,raceSeries:state.raceSeries.map(s=>s.id===action.seriesId?{...s,sessions:[...(s.sessions||[]),{id:Date.now(),name:action.name}]}:s)};
+    case "DELETE_SERIES_SESSION":return{...state,raceSeries:state.raceSeries.map(s=>s.id===action.seriesId?{...s,sessions:(s.sessions||[]).filter(x=>x.id!==action.sessionId)}:s)};
+    case "UPDATE_SERIES_SESSION":return{...state,raceSeries:state.raceSeries.map(s=>s.id===action.seriesId?{...s,sessions:(s.sessions||[]).map(x=>x.id===action.sessionId?{...x,name:action.name}:x)}:s)};
+    case "REORDER_SERIES_SESSIONS":return{...state,raceSeries:state.raceSeries.map(s=>s.id===action.seriesId?{...s,sessions:action.sessions}:s)};
+    case "ADD_EVENT_SESSION":return{...state,events:state.events.map(ev=>ev.id===action.eventId?{...ev,sessions:[...(ev.sessions||[]),{id:Date.now(),name:action.name}]}:ev)};
+    case "DELETE_EVENT_SESSION":return{...state,events:state.events.map(ev=>ev.id===action.eventId?{...ev,sessions:(ev.sessions||[]).filter(x=>x.id!==action.sessionId)}:ev)};
+    case "UPDATE_EVENT_SESSION":return{...state,events:state.events.map(ev=>ev.id===action.eventId?{...ev,sessions:(ev.sessions||[]).map(x=>x.id===action.sessionId?{...x,name:action.name}:x)}:ev)};
+    case "REORDER_EVENT_SESSIONS":return{...state,events:state.events.map(ev=>ev.id===action.eventId?{...ev,sessions:action.sessions}:ev)};
     case "REORDER_SESSIONS":return{...state,sessions:action.sessions};
     case "ADD_REGULATION":return{...state,regulations:[...(state.regulations||[]),{id:Date.now(),...action.payload}]};
     case "DELETE_REGULATION":return{...state,regulations:(state.regulations||[]).filter(r=>r.id!==action.id)};
@@ -2920,7 +2961,7 @@ function OfficialWeightScreen({state,dispatch}){
         return <div style={{background:`${C.orange}11`,border:`1px solid ${C.orange}44`,borderRadius:8,padding:14,textAlign:"center",color:C.orange,fontSize:13,fontWeight:700}}>{t.notAssignedWeight}<br/><span style={{fontSize:11,fontWeight:400}}>{t.contactAdmin}</span></div>;
       return <div>
       <ClassMultiPicker classes={classes} selected={selClasses} onToggle={toggleClass} label={t.classLabel+" ("+t.admGroupsMultiSessionHintShort+")"}/>
-      <Sel label={t.session} value={selSession} onChange={v=>{setSelSession(v);setSelGroups([]);}} options={(state.sessions||[]).map(s=>s.name)}/>
+      <Sel label={t.session} value={selSession} onChange={v=>{setSelSession(v);setSelGroups([]);}} options={sessionsForEvent(state,ev).map(s=>s.name)}/>
       {groupLetters.length>0&&<div style={{background:`${C.cyan}11`,border:`1px solid ${C.cyan}44`,borderRadius:6,padding:"8px 10px",marginBottom:8}}>
         <div style={{color:C.cyan,fontSize:10,letterSpacing:1,marginBottom:6}}>VÆLG GRUPPER DER KØRER NU</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -3065,7 +3106,7 @@ function OfficialNoseScreen({state,dispatch}){
         return <div style={{background:`${C.orange}11`,border:`1px solid ${C.orange}44`,borderRadius:8,padding:14,textAlign:"center",color:C.orange,fontSize:13,fontWeight:700}}>{t.notAssignedNose}<br/><span style={{fontSize:11,fontWeight:400}}>{t.contactAdmin}</span></div>;
       return <div>
         <ClassMultiPicker classes={classes} selected={selClasses} onToggle={toggleClass} label={t.classLabel+" ("+t.admGroupsMultiSessionHintShort+")"}/>
-        <Sel label={t.session} value={selSession} onChange={v=>{setSelSession(v);setSelGroups([]);}} options={(state.sessions||[]).map(s=>s.name)}/>
+        <Sel label={t.session} value={selSession} onChange={v=>{setSelSession(v);setSelGroups([]);}} options={sessionsForEvent(state,ev).map(s=>s.name)}/>
         {groupLetters.length>0&&<div style={{background:`${C.cyan}11`,border:`1px solid ${C.cyan}44`,borderRadius:6,padding:"8px 10px",marginBottom:8}}>
           <div style={{color:C.cyan,fontSize:10,letterSpacing:1,marginBottom:6}}>VÆLG GRUPPER DER KØRER NU</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -3242,7 +3283,7 @@ function OfficialTechScreen({state,dispatch}){
     <Sel label="Løb" value={String(selEv)} onChange={v=>{setSelEv(Number(v));setSelClass("");setSelGroups([]);}} options={evList.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(e=>({value:String(e.id),label:e.name}))}/>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
       <Sel label={t.classLabel} value={selClass} onChange={v=>{setSelClass(v);setSelGroups([]);}} options={[{value:"",label:t.all+" "+t.classLabel.toLowerCase()},...classes.map(c=>({value:c,label:c}))]}/>
-      <Sel label={t.session} value={selSession} onChange={v=>{setSelSession(v);setSelGroups([]);}} options={(state.sessions||[]).map(s=>s.name)}/>
+      <Sel label={t.session} value={selSession} onChange={v=>{setSelSession(v);setSelGroups([]);}} options={sessionsForEvent(state,ev).map(s=>s.name)}/>
     </div>
     {groupLetters.length>0&&<div style={{background:`${C.cyan}11`,border:`1px solid ${C.cyan}44`,borderRadius:6,padding:"8px 10px",marginBottom:8}}>
       <div style={{color:C.cyan,fontSize:10,letterSpacing:1,marginBottom:6}}>VÆLG GRUPPER DER KØRER NU</div>
@@ -3430,7 +3471,7 @@ function OfficialInspectionScreen({state,dispatch}){
       return null;
     })()}
     <ClassMultiPicker classes={sortClassesByAge(state.events.find(e=>e.id===selEv)?.classes||Object.keys(state.classRules),state.classRules)} selected={form.classes} onToggle={toggleClass} label={t.classLabel+" ("+t.admGroupsMultiSessionHintShort+")"}/>
-    <Sel label={t.session} value={form.session} onChange={v=>setForm(f=>({...f,session:v,groups:[]}))} options={(state.sessions||[]).map(s=>s.name)}/>
+    <Sel label={t.session} value={form.session} onChange={v=>setForm(f=>({...f,session:v,groups:[]}))} options={sessionsForEvent(state,state.events.find(e=>e.id===selEv)).map(s=>s.name)}/>
     {(()=>{
       if(form.classes.length!==1)return null;
       const ev=state.events.find(e=>e.id===selEv);
@@ -4302,6 +4343,13 @@ function AdminEvents({state,dispatch,seriesScope}){
               )}
             </div>
           </div>
+          {/* Sessions only get their own section here for a standalone race (no series) — a race
+              that belongs to a series uses that series' own session list instead (managed under
+              Admin → Serier), so all races in the same series stay in sync automatically. */}
+          {!ev.seriesId&&<div style={{marginBottom:10}}>
+            <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>SESSIONER FOR DETTE LØB</div>
+            <SessionsManager state={state} dispatch={dispatch} sessions={ev.sessions} addType="ADD_EVENT_SESSION" deleteType="DELETE_EVENT_SESSION" updateType="UPDATE_EVENT_SESSION" reorderType="REORDER_EVENT_SESSIONS" idField="eventId" idValue={ev.id}/>
+          </div>}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <Input label={t.admRegDeadline} value={editEv.deadline||""} onChange={v=>setEditEv(f=>({...f,deadline:v}))} type="date"/>
             <Input label={t.admMaxDriversPerClass} value={String(editEv.maxParticipants||"")} onChange={v=>setEditEv(f=>({...f,maxParticipants:parseInt(v)||undefined}))} placeholder="ex. 72" type="number"/>
@@ -4565,6 +4613,10 @@ function AdminSeries({state,dispatch}){
           <div style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:10}}>
             <input type="checkbox" checked={!!editForm.ownKartRegister} onChange={e=>setEditForm(f=>({...f,ownKartRegister:e.target.checked}))} style={{marginTop:2}}/>
             <span style={{fontSize:11,color:C.textMuted,lineHeight:1.4}}><strong style={{color:C.text}}>{t.admOwnKartRegisterLabel}</strong><br/>{t.admOwnKartRegisterHelp}</span>
+          </div>
+          <div style={{borderTop:`1px solid ${C.border}`,marginTop:4,paddingTop:12,marginBottom:12}}>
+            <div style={{color:C.textMuted,fontSize:10,letterSpacing:2,marginBottom:8}}>SESSIONER FOR DENNE SERIE</div>
+            <SessionsManager state={state} dispatch={dispatch} sessions={s.sessions} addType="ADD_SERIES_SESSION" deleteType="DELETE_SERIES_SESSION" updateType="UPDATE_SERIES_SESSION" reorderType="REORDER_SERIES_SESSIONS" idField="seriesId" idValue={s.id}/>
           </div>
           <div style={{display:"flex",gap:8}}>
             <Btn small onClick={saveEdit}>{t.save}</Btn>
@@ -4981,7 +5033,7 @@ function AdminNotifications({state,dispatch,seriesScope,useGlobalEv=false}){
     <Card style={{borderLeft:`3px solid ${C.red}`}}>
       <Sel label="Løb" value={selEv} onChange={setSelEv} options={eventsInScope(state.events,seriesScope).map(e=>({value:String(e.id),label:e.name}))}/>
       <Sel label="Klasse" value={form.targetClass} onChange={cls=>setForm(f=>({...f,targetClass:cls,session:"",groups:[]}))} options={["Alle",...((ev?.classes&&ev.classes.length)?ev.classes:sortClassesByAge(Object.keys(state.classRules),state.classRules))]}/>
-      {form.targetClass!=="Alle"&&<Sel label="Session (valgfri)" value={form.session} onChange={v=>setForm(f=>({...f,session:v,groups:[]}))} options={[{value:"",label:"Ingen bestemt session"},...(state.sessions||[]).map(s=>s.name)]}/>}
+      {form.targetClass!=="Alle"&&<Sel label="Session (valgfri)" value={form.session} onChange={v=>setForm(f=>({...f,session:v,groups:[]}))} options={[{value:"",label:"Ingen bestemt session"},...sessionsForEvent(state,ev).map(s=>s.name)]}/>}
       {groupLetters.length>0&&<div style={{marginBottom:10}}>
         <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>Grupper (valgfri)</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -5247,7 +5299,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
         <Sel label={t.admFieldClass} value={editForm.class} onChange={v=>setEditForm(f=>({...f,class:v}))} options={sortClassesByAge(ev?.classes?.length?ev.classes:Object.keys(state.classRules),state.classRules)}/>
-        <Sel label={t.admSession} value={editForm.session} onChange={v=>setEditForm(f=>({...f,session:v}))} options={(state.sessions||[]).map(s=>s.name)}/>
+        <Sel label={t.admSession} value={editForm.session} onChange={v=>setEditForm(f=>({...f,session:v}))} options={sessionsForEvent(state,ev).map(s=>s.name)}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
         <Sel label={t.admPenaltyType} value={editForm.type} onChange={v=>setEditForm(f=>({...f,type:v}))} options={["Tidsstraf","Advarsel","Sortflag","Diskvalifikation","Placering sidst","Hurtigste tid fjernes"]}/>
@@ -5284,7 +5336,7 @@ function AdminPenalties({state,dispatch,seriesScope}){
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
         <Sel label={t.classLabel} value={form.class} onChange={v=>setForm(f=>({...f,class:v}))} options={[{value:"",label:t.admSelectRaceType.replace("løbstype","klasse")},...sortClassesByAge(ev?.classes?.length?ev.classes:Object.keys(state.classRules),state.classRules)]}/>
-        <Sel label={t.session} value={form.session} onChange={v=>setForm(f=>({...f,session:v}))} options={(state.sessions||[]).map(s=>s.name)}/>
+        <Sel label={t.session} value={form.session} onChange={v=>setForm(f=>({...f,session:v}))} options={sessionsForEvent(state,ev).map(s=>s.name)}/>
       </div>
       <div style={{marginBottom:10}}>
         <div style={{color:C.textMuted,fontSize:10,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>{t.penaltyType}</div>
@@ -5457,7 +5509,7 @@ function AdminInspection({state,dispatch,seriesScope}){
     <Card style={{borderLeft:`3px solid ${C.purple}`}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
         <Sel label={t.classLabel} value={form.class} onChange={v=>setForm(f=>({...f,class:v,groups:[]}))} options={sortClassesByAge(ev?.classes||Object.keys(state.classRules),state.classRules)}/>
-        <Sel label={t.session} value={form.session} onChange={v=>setForm(f=>({...f,session:v,groups:[]}))} options={(state.sessions||[]).map(s=>s.name)}/>
+        <Sel label={t.session} value={form.session} onChange={v=>setForm(f=>({...f,session:v,groups:[]}))} options={sessionsForEvent(state,ev).map(s=>s.name)}/>
       </div>
       {groupLetters.length>0&&<div style={{background:`${C.cyan}11`,border:`1px solid ${C.cyan}44`,borderRadius:6,padding:"8px 10px",marginBottom:10}}>
         <div style={{color:C.cyan,fontSize:10,letterSpacing:1,marginBottom:6}}>{t.admGroupsOptional}</div>
@@ -5522,7 +5574,7 @@ function AdminGroups({state,dispatch,seriesScope}){
   const setSelEv=v=>setAdminSelEv(dispatch,v);
   const ev=state.events.find(e=>String(e.id)===selEv);
   const classes=ev?sortClassesByAge(ev.classes||Object.keys(state.classRules),state.classRules):[];
-  const sessions=(state.sessions||[]).map(s=>s.name);
+  const sessions=sessionsForEvent(state,ev).map(s=>s.name);
   const [selClass,setSelClass]=useState("");
   const ALL_SESSIONS="*"; // class-wide: applies to all heats/sessions
   const [selSessions,setSelSessions]=useState([ALL_SESSIONS]); // array — supports picking several specific sessions at once
@@ -5961,20 +6013,25 @@ function AdminRegulations({state,dispatch}){
   </div>;
 }
 
-function AdminSessions({state,dispatch}){
+// Reusable sessions (Træning 1, Kval, Heat 1, Prefinale, Finale, etc.) manager — used both inside a
+// series' own edit form and inside a standalone race's own edit form, since each now has its own
+// session list instead of one shared global one (see sessionsForEvent). addType/deleteType/
+// updateType/reorderType are the four action types to dispatch, and idField/idValue identify which
+// series or event they should apply to (e.g. idField="seriesId", idValue=s.id).
+function SessionsManager({state,dispatch,sessions,addType,deleteType,updateType,reorderType,idField,idValue}){
   const t=useT();
   const [name,setName]=useState("");
   const [editId,setEditId]=useState(null);
   const [editName,setEditName]=useState("");
-  const sessions=state.sessions||[];
-  const add=()=>{if(!name.trim())return;dispatch({type:"ADD_SESSION",name:name.trim()});setName("");};
-  const saveEdit=()=>{if(!editName.trim())return;dispatch({type:"UPDATE_SESSION",id:editId,name:editName.trim()});setEditId(null);};
+  const list=sessions||[];
+  const add=()=>{if(!name.trim())return;dispatch({type:addType,[idField]:idValue,name:name.trim()});setName("");};
+  const saveEdit=()=>{if(!editName.trim())return;dispatch({type:updateType,[idField]:idValue,sessionId:editId,name:editName.trim()});setEditId(null);};
   const move=(idx,dir)=>{
-    const arr=sessions.slice();
+    const arr=list.slice();
     const j=idx+dir;
     if(j<0||j>=arr.length)return;
     [arr[idx],arr[j]]=[arr[j],arr[idx]];
-    dispatch({type:"REORDER_SESSIONS",sessions:arr});
+    dispatch({type:reorderType,[idField]:idValue,sessions:arr});
   };
   return <div>
     <Card style={{marginBottom:12}}>
@@ -5985,9 +6042,9 @@ function AdminSessions({state,dispatch}){
         <Btn small onClick={add} disabled={!name.trim()}>+ Tilføj</Btn>
       </div>
     </Card>
-    <div style={{color:C.textMuted,fontSize:10,letterSpacing:2,marginBottom:8}}>SESSIONER ({sessions.length})</div>
-    {sessions.length===0&&<div style={{color:C.textDim,fontSize:12,padding:16,textAlign:"center"}}>Ingen sessioner endnu</div>}
-    {sessions.map((s,idx)=><Card key={s.id} style={{padding:"8px 12px",marginBottom:6}}>
+    <div style={{color:C.textMuted,fontSize:10,letterSpacing:2,marginBottom:8}}>SESSIONER ({list.length})</div>
+    {list.length===0&&<div style={{color:C.textDim,fontSize:12,padding:16,textAlign:"center"}}>Ingen sessioner endnu</div>}
+    {list.map((s,idx)=><Card key={s.id} style={{padding:"8px 12px",marginBottom:6}}>
       {editId===s.id
         ?<div style={{display:"flex",gap:8,alignItems:"center"}}>
           <div style={{flex:1}}><Input value={editName} onChange={setEditName} placeholder="Navn"/></div>
@@ -5997,12 +6054,12 @@ function AdminSessions({state,dispatch}){
         :<div style={{display:"flex",alignItems:"center",gap:8}}>
           <div style={{display:"flex",flexDirection:"column",gap:1}}>
             <button onClick={()=>move(idx,-1)} disabled={idx===0} style={{background:"transparent",border:"none",color:idx===0?C.textDim:C.textMuted,cursor:idx===0?"default":"pointer",fontSize:10,lineHeight:1,padding:0}}>▲</button>
-            <button onClick={()=>move(idx,1)} disabled={idx===sessions.length-1} style={{background:"transparent",border:"none",color:idx===sessions.length-1?C.textDim:C.textMuted,cursor:idx===sessions.length-1?"default":"pointer",fontSize:10,lineHeight:1,padding:0}}>▼</button>
+            <button onClick={()=>move(idx,1)} disabled={idx===list.length-1} style={{background:"transparent",border:"none",color:idx===list.length-1?C.textDim:C.textMuted,cursor:idx===list.length-1?"default":"pointer",fontSize:10,lineHeight:1,padding:0}}>▼</button>
           </div>
           <span style={{color:C.textDim,fontSize:11,minWidth:20}}>{idx+1}.</span>
           <span style={{flex:1,color:C.text,fontWeight:600,fontSize:14}}>{s.name}</span>
           <Btn small variant="ghost" onClick={()=>{setEditId(s.id);setEditName(s.name);}}>{t.edit}</Btn>
-          <Btn small variant="danger" onClick={()=>{if(confirm(`Slet sessionen "${s.name}"?`))dispatch({type:"DELETE_SESSION",id:s.id});}}>{t.delete}</Btn>
+          <Btn small variant="danger" onClick={()=>{if(confirm(`Slet sessionen "${s.name}"?`))dispatch({type:deleteType,[idField]:idValue,sessionId:s.id});}}>{t.delete}</Btn>
         </div>}
     </Card>)}
   </div>;
@@ -6037,13 +6094,12 @@ function AppearanceSettings({state,dispatch}){
 function AdminSetup({state,dispatch}){
   const t=useT();
   const [tab,setTab]=useState("sessions");
-  const tabs=[["sessions","🏳 Sessioner"],["racetypes","🏁 Løbstyper"],["clubs","🏢 Klubber"],["tracks","🏟 Baner"],["regulations","📋 Reglementer"],["penalties","⚠️ Straffe"],["storage","💾 Lager"],["appearance","🎨 Udseende"],["mine","🎛️ Mine indstillinger"]];
+  const tabs=[["racetypes","🏁 Løbstyper"],["clubs","🏢 Klubber"],["tracks","🏟 Baner"],["regulations","📋 Reglementer"],["penalties","⚠️ Straffe"],["storage","💾 Lager"],["appearance","🎨 Udseende"],["mine","🎛️ Mine indstillinger"]];
   return <div>
     <SH title="Opsætning"/>
     <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:`1px solid ${C.border}`,paddingBottom:0}}>
       {tabs.map(([id,label])=><button key={id} onClick={()=>setTab(id)} style={{background:"transparent",border:"none",borderBottom:tab===id?`2px solid ${C.red}`:"2px solid transparent",color:tab===id?C.red:C.textMuted,cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:tab===id?700:500,fontFamily:"inherit",marginBottom:-1}}>{label}</button>)}
     </div>
-    {tab==="sessions"&&<AdminSessions state={state} dispatch={dispatch}/>}
     {tab==="racetypes"&&<AdminRaceTypes state={state} dispatch={dispatch}/>}
     {tab==="clubs"&&<AdminClubs state={state} dispatch={dispatch}/>}
     {tab==="tracks"&&<AdminTracks state={state} dispatch={dispatch}/>}
