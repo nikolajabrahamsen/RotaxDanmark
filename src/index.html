@@ -7881,7 +7881,7 @@ function DriverListScreen({state,dispatch,useGlobalEv=false,seriesScope=null}){
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
           <button onClick={()=>setShowCsvPicker(!showCsvPicker)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.textMuted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>{t.admFieldsBtn}</button>
           <Btn small variant="secondary" onClick={doExport}>CSV</Btn>
-          <button onClick={()=>setShowMylapsPicker(!showMylapsPicker)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.textMuted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Orbit</button>
+          <button onClick={()=>setShowMylapsPicker(!showMylapsPicker)} style={{background:C.purple,border:`1px solid ${C.purple}`,borderRadius:6,padding:"5px 10px",color:"#fff",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>⚙️ Orbit</button>
           <Btn small onClick={doMyLapsExport} style={{background:C.purple}}>MyLaps Orbit 5</Btn>
         </div>
         {showCsvPicker&&<Card style={{borderLeft:`3px solid ${C.blue}`,marginBottom:8}}>
@@ -7905,9 +7905,11 @@ function DriverListScreen({state,dispatch,useGlobalEv=false,seriesScope=null}){
         {filtered.map(({reg,user},i)=><div key={user.id} onClick={()=>openDriver({reg,user})} style={{display:"grid",gridTemplateColumns:"56px 1fr auto",alignItems:"center",padding:"10px 14px",borderBottom:i<filtered.length-1?`1px solid ${C.border}`:"none",cursor:"pointer"}}>
           <div style={{fontWeight:900,color:C.text,fontSize:22,fontFamily:"'Barlow Condensed',sans-serif"}}>#{user.kartNumber}</div>
           <div><div style={{fontWeight:700,color:C.text,fontSize:13}}>{user.country?flagEmoji(user.country)+" ":""}{user.name}</div><div style={{color:C.textMuted,fontSize:11}}>{reg.class}{user.license?" · "+user.license:""}</div></div>
-          <div style={{display:"flex",gap:4,alignItems:"center"}}>
-            {reg.paid&&<Badge color={C.gold} style={{fontSize:9}}>{t.admFieldPaid.toUpperCase()}</Badge>}
-            {licenseOkFor(user.id)&&<Badge color={C.green} style={{fontSize:9}}>LIC ✓</Badge>}
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"flex-end"}}>
+              {reg.paid&&<Badge color={C.green} style={{fontSize:10}}>{t.admFieldPaid.toUpperCase()}</Badge>}
+              {licenseOkFor(user.id)&&<Badge color={C.green} style={{fontSize:10}}>LIC ✓</Badge>}
+            </div>
             {user.licenseValid===true&&<span style={{fontSize:12}}>✅</span>}
             {user.licenseValid===false&&<span style={{fontSize:12}}>❌</span>}
             <span style={{color:C.textDim,fontSize:18}}>›</span>
