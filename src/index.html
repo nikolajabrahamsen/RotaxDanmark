@@ -8410,6 +8410,17 @@ function AdminApp({state,dispatch}){
 }
 
 // ── ROOT ────────────────────────────────────────────────────────────
+// Full-screen, click-blocking overlay shown while a save is actually in flight — closes the gap
+// where someone could keep tapping buttons (which looked like they worked) while the previous
+// change hadn't actually finished saving yet, silently risking it never landing. Deliberately only
+// blocks on "saving" (an active save in progress), not "loading"/"synced"/"error"/"local" — those
+// don't have this specific race. z-index is set above every other z-index in the app (highest
+// existing usage is 10000) so it also covers open modals/dropdowns, not just the page underneath.
+function SyncBlockOverlay({status}){
+  if(status!=="saving")return null;
+  return <div style={{position:"fixed",inset:0,zIndex:20000,background:"rgba(0,0,0,0.08)",cursor:"wait"}}/>;
+}
+
 function SyncBadge({status}){
   if(!sb)return null;
   const lang=useLang();
@@ -9205,6 +9216,7 @@ function App(){
   return <LangCtx.Provider value={state.lang}>
     <div style={{width:"100%",height:"100vh",overflow:"hidden"}}>
       {(u?.isAdmin||u?.type==="admin"||u?.isSubAdmin)?<AdminApp state={state} dispatch={dispatchWithLogout}/>:<UserApp state={state} dispatch={dispatchWithLogout}/>}
+      <SyncBlockOverlay status={sync}/>
       <SyncBadge status={sync}/>
     </div>
   </LangCtx.Provider>;
