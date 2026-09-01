@@ -7753,6 +7753,34 @@ function DriverListScreen({state,dispatch,useGlobalEv=false,seriesScope=null}){
   const [editMode,setEditMode]=useState(false);
   const [editForm,setEditForm]=useState({});
   const [saved,setSaved]=useState(false);
+  // Export tooling (CSV / MyLaps Orbit 5) — only relevant for the admin dashboard usage
+  // (useGlobalEv), not the simpler shared driver-tap-to-view screen officials use.
+  const ALL_FIELDS=[t.admFieldName,t.admFieldEmail,t.admFieldClass,t.admFieldKart,t.admFieldTransponder,t.admFieldLicense,t.admFieldClub,t.admFieldClubCode,t.admFieldNationality,t.admFieldPhone,t.admFieldPaddockL,t.admFieldPaddockD,t.admFieldSlicks,t.admFieldWets,t.admFieldPaid,t.admFieldLicenseOk];
+  const [csvFields,setCsvFields]=useState([t.admFieldName,t.admFieldEmail,t.admFieldClass,t.admFieldKart,t.admFieldTransponder,t.admFieldLicense]);
+  const [mylapsFields,setMylapsFields]=useState([t.admFieldKart,t.admFieldTransponder,t.admFieldName,t.admFieldClass]);
+  const [showCsvPicker,setShowCsvPicker]=useState(false);
+  const [showMylapsPicker,setShowMylapsPicker]=useState(false);
+  const [onlyLicenseOk,setOnlyLicenseOk]=useState(false);
+  const clubCodeFor=(u)=>u.clubCode||state.clubs?.find(c=>c.name===u.club)?.clubCode||"";
+  const licenseOkFor=(userId)=>{
+    const reg=(ev?.registrations||[]).find(r=>r.userId===userId);
+    if(reg?.licenseOk!==undefined)return !!reg.licenseOk;
+    return !!(ev?.licenseChecks||{})[userId+"_ok"];
+  };
+  const rowFor=(r)=>{
+    const u=state.users.find(u=>u.id===r.userId)||{};
+    const paddockParts=(r.paddockSpace||"").split("×").map(s=>s.trim().replace("m",""));
+    return {
+      [t.admFieldName]:u.name||"",[t.admFieldEmail]:u.email||"",[t.admFieldClass]:r.class||"",
+      [t.admFieldKart]:String(u.kartNumber||""),[t.admFieldTransponder]:u.transponder||"",
+      [t.admFieldLicense]:u.license||"",[t.admFieldClub]:u.club||"",[t.admFieldClubCode]:clubCodeFor(u),[t.admFieldNationality]:u.country||"",[t.admFieldPhone]:u.phone||"",
+      [t.admFieldPaddockL]:paddockParts[0]||"",[t.admFieldPaddockD]:paddockParts[1]||"",
+      [t.admFieldSlicks]:(r.slicks||[]).join(";"),[t.admFieldWets]:(r.wets||[]).join(";"),
+      [t.admFieldPaid]:r.paid?t.admYes:t.admNo,[t.admFieldLicenseOk]:u.licenseValid===true?t.admYes:u.licenseValid===false?t.admNo:"?"
+    };
+  };
+  const toggleField=f=>setCsvFields(prev=>prev.includes(f)?prev.filter(x=>x!==f):[...prev,f]);
+  const toggleMylapsField=f=>setMylapsFields(prev=>prev.includes(f)?prev.filter(x=>x!==f):[...prev,f]);
 
   const ev=scopedEvents.find(e=>e.id===parseInt(selEv))||scopedEvents[0];
   const regs=ev?.registrations||[];
@@ -7762,14 +7790,25 @@ function DriverListScreen({state,dispatch,useGlobalEv=false,seriesScope=null}){
     .map(r=>{const u=state.users.find(u=>u.id===r.userId);return{reg:r,user:u};})
     .filter(({user})=>user&&(!search||user.name.toLowerCase().includes(search.toLowerCase())||String(user.kartNumber).includes(search)||(user.license||"").toLowerCase().includes(search.toLowerCase())))
     .sort((a,b)=>(a.user.kartNumber||0)-(b.user.kartNumber||0));
+  // Export list respects the class filter + search box too, plus the license-only toggle — so
+  // "export what I'm currently looking at" always does the expected thing.
+  const exportRegs=(onlyLicenseOk?filtered.filter(({user})=>licenseOkFor(user.id)):filtered).map(({reg})=>reg);
+  const doExport=()=>exportCSV(exportRegs.map(rowFor),csvFields,`tilmeldinger_${ev?.name||""}`);
+  const doMyLapsExport=()=>exportCSV(exportRegs.map(rowFor),mylapsFields,`mylaps_${ev?.name||""}`);
 
   const openDriver=(item)=>{
     setSelDriver(item);setEditMode(false);setSaved(false);
-    setEditForm({name:item.user.name,phone:item.user.phone||"",license:item.user.license||"",transponder:item.user.transponder||"",kartNumber:item.user.kartNumber||"",club:item.user.club||""});
+    setEditForm({name:item.user.name,phone:item.user.phone||"",license:item.user.license||"",transponder:item.user.transponder||"",kartNumber:item.user.kartNumber||"",club:item.user.club||"",class:item.reg.class||""});
   };
   const saveDriver=()=>{
     dispatch({type:"UPDATE_USER",payload:{id:selDriver.user.id,name:editForm.name,phone:editForm.phone,license:editForm.license,transponder:editForm.transponder,kartNumber:parseInt(editForm.kartNumber)||undefined,club:editForm.club}});
+    if(editForm.class&&editForm.class!==selDriver.reg.class)dispatch({type:"UPDATE_REGISTRATION",eventId:ev.id,userId:selDriver.user.id,payload:{class:editForm.class}});
     setSaved(true);setTimeout(()=>setSaved(false),2000);
+  };
+  const removeDriver=()=>{
+    if(!window.confirm(`${t.admRemoveRegConfirm} ${selDriver.user.name||"?"}?`))return;
+    dispatch({type:"DELETE_REGISTRATION",eventId:ev.id,userId:selDriver.user.id});
+    setSelDriver(null);
   };
   const pens=(selDriver&&ev)?((ev.penalties||[]).filter(p=>p.approved&&(p.kartNo===selDriver.user.kartNumber||p.driverName===selDriver.user.name))):[]; 
 
@@ -7795,14 +7834,16 @@ function DriverListScreen({state,dispatch,useGlobalEv=false,seriesScope=null}){
         <Input label={t.admLicenseNumber} value={editForm.license} onChange={v=>setEditForm(f=>({...f,license:v}))} placeholder="DK-2026-XXXX"/>
         <Input label={t.admFieldTransponder} value={editForm.transponder} onChange={v=>setEditForm(f=>({...f,transponder:v}))} placeholder="T-XXXX"/>
         <Input label={t.admFieldKart+" #"} value={String(editForm.kartNumber||"")} onChange={v=>setEditForm(f=>({...f,kartNumber:v}))} placeholder="98" type="number"/>
+        <Sel label={t.admFieldClass} value={editForm.class} onChange={v=>setEditForm(f=>({...f,class:v}))} options={(ev?.classes&&ev.classes.length?ev.classes:sortClassesByAge(Object.keys(state.classRules),state.classRules)).map(c=>({value:c,label:c}))}/>
         {(state.clubs&&state.clubs.length)
           ?<Sel label={t.admFieldClub} value={editForm.club} onChange={v=>setEditForm(f=>({...f,club:v}))} options={[{value:"",label:t.admSelectClubOpt},...state.clubs.slice().sort((a,b)=>a.name.localeCompare(b.name,"da")).map(c=>({value:c.name,label:c.name}))]}/>
           :<Input label={t.admFieldClub} value={editForm.club} onChange={v=>setEditForm(f=>({...f,club:v}))} placeholder={t.admClubName}/>}
-        {saved?<div style={{background:`${C.green}22`,border:`1px solid ${C.green}44`,borderRadius:8,padding:12,textAlign:"center",color:C.green,fontWeight:700}}>{t.admSavedExcl}</div>:<Btn onClick={saveDriver} fullWidth>{t.admSaveChanges}</Btn>}
+        {saved?<div style={{background:`${C.green}22`,border:`1px solid ${C.green}44`,borderRadius:8,padding:12,textAlign:"center",color:C.green,fontWeight:700,marginBottom:10}}>{t.admSavedExcl}</div>:<Btn onClick={saveDriver} fullWidth style={{marginBottom:10}}>{t.admSaveChanges}</Btn>}
+        <Btn variant="danger" fullWidth onClick={removeDriver}>{t.admRemoveRegConfirm} {selDriver.user.name}</Btn>
       </Card>:<Card>
         <div style={{color:C.textMuted,fontSize:10,letterSpacing:2,marginBottom:10}}>{t.admDriverData}</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          {[[t.admFieldLicense,u.license],[t.admFieldTransponder,u.transponder],[t.admFieldClass,selDriver.reg.class],[t.admFieldKart+" #",u.kartNumber],[t.admFieldClub,u.club],[t.admFieldPhone,u.phone]].filter(([,v])=>v).map(([k,v])=><div key={k}><div style={{color:C.textDim,fontSize:10}}>{k}</div><div style={{color:C.text,fontWeight:600,fontSize:13}}>{v}</div></div>)}
+          {[[t.admFieldLicense,u.license],[t.admFieldTransponder,u.transponder],[t.admFieldClass,selDriver.reg.class],[t.admFieldKart+" #",u.kartNumber],[t.admFieldClub,u.club],[t.admFieldPhone,u.phone],[t.admFieldPaid,selDriver.reg.paid?t.admYes:t.admNo]].filter(([,v])=>v).map(([k,v])=><div key={k}><div style={{color:C.textDim,fontSize:10}}>{k}</div><div style={{color:C.text,fontWeight:600,fontSize:13}}>{v}</div></div>)}
         </div>
       </Card>}
       <Card accentColor={pens.length>0?C.orange:C.green}>
@@ -7832,6 +7873,30 @@ function DriverListScreen({state,dispatch,useGlobalEv=false,seriesScope=null}){
       </div>
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={t.admSearchKartOrName}
         style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"9px 12px",color:C.text,fontSize:13,boxSizing:"border-box",marginBottom:8,fontFamily:"inherit"}}/>
+      {useGlobalEv&&<>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+          <button onClick={()=>setOnlyLicenseOk(v=>!v)} style={{background:onlyLicenseOk?`${C.green}22`:C.surface2,border:`1px solid ${onlyLicenseOk?C.green:C.border}`,borderRadius:6,padding:"6px 10px",color:onlyLicenseOk?C.green:C.textMuted,cursor:"pointer",fontSize:11,fontFamily:"inherit",fontWeight:700}}>{onlyLicenseOk?"✓ ":""}{t.admOnlyLicenseOkExport}</button>
+          <span style={{color:C.textDim,fontSize:10}}>{exportRegs.length}/{filtered.length}</span>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+          <button onClick={()=>setShowCsvPicker(!showCsvPicker)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.textMuted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>{t.admFieldsBtn}</button>
+          <Btn small variant="secondary" onClick={doExport}>CSV</Btn>
+          <button onClick={()=>setShowMylapsPicker(!showMylapsPicker)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.textMuted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Orbit</button>
+          <Btn small onClick={doMyLapsExport} style={{background:C.purple}}>MyLaps Orbit 5</Btn>
+        </div>
+        {showCsvPicker&&<Card style={{borderLeft:`3px solid ${C.blue}`,marginBottom:8}}>
+          <div style={{color:C.textMuted,fontSize:10,letterSpacing:2,marginBottom:8}}>{t.admSelectCsvFields}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {ALL_FIELDS.map(f=><button key={f} onClick={()=>toggleField(f)} style={{background:csvFields.includes(f)?`${C.blue}33`:C.surface2,border:`1px solid ${csvFields.includes(f)?C.blue:C.border}`,borderRadius:20,padding:"4px 10px",fontSize:10,cursor:"pointer",color:csvFields.includes(f)?C.blue:C.textMuted,fontFamily:"inherit"}}>{f}</button>)}
+          </div>
+        </Card>}
+        {showMylapsPicker&&<Card style={{borderLeft:`3px solid ${C.purple}`,marginBottom:8}}>
+          <div style={{color:C.textMuted,fontSize:10,letterSpacing:2,marginBottom:8}}>{t.admSelectOrbitFields}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {ALL_FIELDS.map(f=><button key={f} onClick={()=>toggleMylapsField(f)} style={{background:mylapsFields.includes(f)?`${C.purple}33`:C.surface2,border:`1px solid ${mylapsFields.includes(f)?C.purple:C.border}`,borderRadius:20,padding:"4px 10px",fontSize:10,cursor:"pointer",color:mylapsFields.includes(f)?C.purple:C.textMuted,fontFamily:"inherit"}}>{f}</button>)}
+          </div>
+        </Card>}
+      </>}
       <div style={{color:C.textMuted,fontSize:11,marginBottom:8}}>{filtered.length}{t.admDriversCount}</div>
     </div>
     <div style={{flex:1,overflowY:"auto",padding:"0 16px 16px"}}>
@@ -7841,6 +7906,7 @@ function DriverListScreen({state,dispatch,useGlobalEv=false,seriesScope=null}){
           <div style={{fontWeight:900,color:C.text,fontSize:22,fontFamily:"'Barlow Condensed',sans-serif"}}>#{user.kartNumber}</div>
           <div><div style={{fontWeight:700,color:C.text,fontSize:13}}>{user.country?flagEmoji(user.country)+" ":""}{user.name}</div><div style={{color:C.textMuted,fontSize:11}}>{reg.class}{user.license?" · "+user.license:""}</div></div>
           <div style={{display:"flex",gap:4,alignItems:"center"}}>
+            {reg.paid&&<Badge color={C.gold} style={{fontSize:9}}>{t.admFieldPaid.toUpperCase()}</Badge>}
             {user.licenseValid===true&&<span style={{fontSize:12}}>✅</span>}
             {user.licenseValid===false&&<span style={{fontSize:12}}>❌</span>}
             <span style={{color:C.textDim,fontSize:18}}>›</span>
@@ -8330,7 +8396,6 @@ function AdminApp({state,dispatch}){
     {id:"kartreg",icon:"🔢",label:t.navKartReg},
     {id:"standings",icon:"🏆",label:t.navStandingsAdmin},
     {divider:true},
-    {id:"registrations",icon:"📝",label:t.navRegistrationsAdmin},
     {id:"driverlist",icon:"👥",label:t.navDriverListAdmin},
     {id:"licensecheck",icon:"🪪",label:t.navLicenseCheckAdmin},
     {id:"groups",icon:"🏳",label:t.navGroups},
@@ -8390,7 +8455,6 @@ function AdminApp({state,dispatch}){
       {activeSec==="series"&&<AdminSeries state={state} dispatch={dispatch}/>}
       {activeSec==="classes"&&<AdminClassManager state={state} dispatch={dispatch}/>}
       {activeSec==="kartreg"&&<AdminKartRegister state={state} dispatch={dispatch}/>}
-      {activeSec==="registrations"&&<AdminRegistrations state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
       {activeSec==="driverlist"&&<DriverListScreen state={state} dispatch={dispatch} useGlobalEv seriesScope={isSub?mySeriesIds:null}/>}
       {activeSec==="import"&&<AdminImport state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
       {activeSec==="groups"&&<AdminGroups state={state} dispatch={dispatch} seriesScope={isSub?mySeriesIds:null}/>}
