@@ -499,9 +499,14 @@ function ScanMode({ev,users,sessions,scans,addScan,scanLimits,me}){
     setCode("");
     const known=partBarcodes(driver.id,part);
     const isKnown=known.includes(barcode);
+    const {soft,hard}=limitFor(part,scanLimits);
+    // Stay on this part (don't close the panel) until the "normal amount" is actually reached —
+    // e.g. selecting Slicks stays selected through scan 1, 2, 3 and 4 in a row, only closing once
+    // the 4th one lands, instead of forcing a re-tap on the part box between every single scan.
+    const reachedSoft=known.length+1>=soft;
     if(isKnown){
       await addScan({event_id:ev.id,driver_id:driver.id,driver_name:driver.name,kart_no:driver.kartNumber?String(driver.kartNumber):null,class:driver._regClass,session:sessionCtx==="checkin"?null:sessionCtx,part_type:part,barcode,status:"ok",scanned_by:byName});
-      setActivePart(null);
+      if(reachedSoft)setActivePart(null);else inputRef.current?.focus();
       return;
     }
     // Below the soft limit (set under the Indstillinger tab, or the built-in defaults): just add
@@ -509,7 +514,6 @@ function ScanMode({ev,users,sessions,scans,addScan,scanLimits,me}){
     // flow before there's actually anything to double-check. At/above soft (but still under hard):
     // ask for confirmation each time, same as before. At/above hard: genuinely blocked, no way to
     // add it at all, not even with confirmation.
-    const {soft,hard}=limitFor(part,scanLimits);
     if(known.length>=hard){
       playAlarm();
       setAlarm({part,barcode});
@@ -517,7 +521,7 @@ function ScanMode({ev,users,sessions,scans,addScan,scanLimits,me}){
     }
     if(known.length<soft){
       await addScan({event_id:ev.id,driver_id:driver.id,driver_name:driver.name,kart_no:driver.kartNumber?String(driver.kartNumber):null,class:driver._regClass,session:sessionCtx==="checkin"?null:sessionCtx,part_type:part,barcode,status:known.length?"new_registered":"ok",scanned_by:byName});
-      setActivePart(null);
+      if(reachedSoft)setActivePart(null);else inputRef.current?.focus();
       return;
     }
     setConfirmPopup({part,barcode,count:known.length});
