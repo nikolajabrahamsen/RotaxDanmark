@@ -219,7 +219,7 @@ const STR={
     classProgress:"Scannet ind pr. klasse",
     scanLicensePrompt:"Scan kørerens licens-stregkode for at starte",
     licenseNumber:"Licensnummer",scanOrEnterLicense:"Scan eller indtast licens...",switchDriver:"Skift kører",
-    registered:"registreret",scanPrefix:"Scan",scanOrEnterBarcode:"Scan eller indtast stregkode...",
+    registered:"registreret",thisSession:"denne session",scanPrefix:"Scan",scanOrEnterBarcode:"Scan eller indtast stregkode...",
     knownCodes:"Kendte koder:",noneYet:"Ingen registreret endnu",newFor:"Nyt",newCode:"Ny kode:",
     alreadyRegistered:"Allerede registreret",
     tireConfirm:(n,max)=>`Dette bliver nr. ${n} af (normalt) ${max}. Bekræft at det skal tilføjes.`,
@@ -255,7 +255,7 @@ const STR={
     classProgress:"Scanned in per class",
     scanLicensePrompt:"Scan the driver's license barcode to start",
     licenseNumber:"License number",scanOrEnterLicense:"Scan or enter license...",switchDriver:"Switch driver",
-    registered:"registered",scanPrefix:"Scan",scanOrEnterBarcode:"Scan or enter barcode...",
+    registered:"registered",thisSession:"this session",scanPrefix:"Scan",scanOrEnterBarcode:"Scan or enter barcode...",
     knownCodes:"Known codes:",noneYet:"None registered yet",newFor:"New",newCode:"New code:",
     alreadyRegistered:"Already registered",
     tireConfirm:(n,max)=>`This will be no. ${n} of (normally) ${max}. Confirm it should be added.`,
@@ -474,6 +474,16 @@ function ScanMode({ev,users,sessions,scans,addScan,scanLimits,me}){
     return [...new Set(rows.map(r=>r.barcode))];
   };
 
+  // Distinct barcodes scanned for this part in the CURRENTLY selected session specifically — used
+  // both to decide when to auto-close the scanning panel (see handlePartScan) and to show a
+  // checkmark per individual part in the box grid, so re-verifying already-known equipment in a
+  // new session (Heat 1, Opvarmning, etc.) shows real per-item progress for that session, not just
+  // one all-or-nothing badge based on the driver's total-ever-registered count.
+  const sessionScannedCodes=(part)=>{
+    if(!driver)return new Set();
+    return new Set(scans.filter(s=>s.driver_id===driver.id&&s.part_type===part&&s.status!=="violation"&&(sessionCtx==="checkin"?!s.session:s.session===sessionCtx)).map(s=>s.barcode));
+  };
+
   const findDriver=(license)=>{
     const l=license.trim().toLowerCase();
     if(!l)return null;
@@ -500,10 +510,16 @@ function ScanMode({ev,users,sessions,scans,addScan,scanLimits,me}){
     const known=partBarcodes(driver.id,part);
     const isKnown=known.includes(barcode);
     const {soft,hard}=limitFor(part,scanLimits);
-    // Stay on this part (don't close the panel) until the "normal amount" is actually reached —
-    // e.g. selecting Slicks stays selected through scan 1, 2, 3 and 4 in a row, only closing once
-    // the 4th one lands, instead of forcing a re-tap on the part box between every single scan.
-    const reachedSoft=known.length+1>=soft;
+    // Stay on this part (don't close the panel) until the "normal amount" is actually reached FOR
+    // THIS SESSION specifically — e.g. selecting Slicks stays selected through scan 1, 2, 3 and 4
+    // in a row, only closing once the 4th one lands, instead of forcing a re-tap between every
+    // single scan. This has to be based on how many distinct barcodes have been scanned *this
+    // session*, not the driver's total-ever-registered count — otherwise re-confirming already-
+    // known tires again in a brand new session (Heat 1, Opvarmning, etc.) would immediately count
+    // as "done" after just one scan, since the registered count itself never changes when you're
+    // just re-verifying things that were already known.
+    const sessionCodesBefore=sessionScannedCodes(part);
+    const reachedSoft=new Set([...sessionCodesBefore,barcode]).size>=soft;
     if(isKnown){
       await addScan({event_id:ev.id,driver_id:driver.id,driver_name:driver.name,kart_no:driver.kartNumber?String(driver.kartNumber):null,class:driver._regClass,session:sessionCtx==="checkin"?null:sessionCtx,part_type:part,barcode,status:"ok",scanned_by:byName});
       if(reachedSoft)setActivePart(null);else inputRef.current?.focus();
@@ -587,18 +603,23 @@ function ScanMode({ev,users,sessions,scans,addScan,scanLimits,me}){
         {["frame","motor","slick","wet"].map(part=>{
           const known=partBarcodes(driver.id,part);
           const {hard}=limitFor(part,scanLimits);
-          // Checkmark = this part has at least one successful (non-rejected) scan recorded for the
-          // CURRENT session — so it reflects "scanned and confirmed to match" for whichever session
-          // is selected right now, and naturally shows the right thing again if you switch back to
-          // an earlier session (e.g. Opvarmning) later, since each scan is already saved with its
-          // own session on it.
-          const sessionScans=scans.filter(s=>s.driver_id===driver.id&&s.part_type===part&&(sessionCtx==="checkin"?!s.session:s.session===sessionCtx));
-          const verified=sessionScans.some(s=>s.status!=="violation");
-          return <Card key={part} onClick={()=>setActivePart(part)} style={{cursor:"pointer",position:"relative",borderLeft:`3px solid ${activePart===part?C.red:verified?C.green:C.border}`,marginBottom:0}}>
-            {verified&&<div style={{position:"absolute",top:6,right:8,fontSize:16}}>✅</div>}
-            <div style={{fontSize:20,marginBottom:4}}>{PART_ICONS[part]}</div>
+          // One small checkmark per registered item for this part, filled in as each specific one
+          // gets (re-)confirmed for the CURRENTLY selected session — so scanning the same 4 known
+          // tires again for a new session (Heat 1, Opvarmning, etc.) fills in 4 individual
+          // checkmarks as each one lands, instead of one all-or-nothing badge for the whole part.
+          // Naturally shows the right progress again if you switch back to an earlier session too,
+          // since each scan already carries its own session.
+          const scannedThisSession=sessionScannedCodes(part);
+          const verifiedCount=known.filter(code=>scannedThisSession.has(code)).length;
+          return <Card key={part} onClick={()=>setActivePart(part)} style={{cursor:"pointer",borderLeft:`3px solid ${activePart===part?C.red:verifiedCount>0&&verifiedCount>=known.length?C.green:C.border}`,marginBottom:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div style={{fontSize:20,marginBottom:4}}>{PART_ICONS[part]}</div>
+              {known.length>0&&<div style={{display:"flex",gap:2,flexWrap:"wrap",justifyContent:"flex-end",maxWidth:64}}>
+                {known.map((code,i)=><span key={code} style={{fontSize:12,opacity:scannedThisSession.has(code)?1:0.25}}>{scannedThisSession.has(code)?"✅":"⭕"}</span>)}
+              </div>}
+            </div>
             <div style={{fontWeight:700,fontSize:13}}>{PARTS[part]}</div>
-            <div style={{color:C.textMuted,fontSize:11}}>{known.length}/{hard} {STR.registered}</div>
+            <div style={{color:C.textMuted,fontSize:11}}>{known.length}/{hard} {STR.registered}{known.length>0?` · ${verifiedCount}/${known.length} ${STR.thisSession}`:""}</div>
           </Card>;
         })}
       </div>
